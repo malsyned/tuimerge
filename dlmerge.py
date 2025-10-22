@@ -9,7 +9,7 @@ import sys
 import subprocess
 from tempfile import NamedTemporaryFile
 from types import TracebackType
-from typing import Generator, Literal, NoReturn, Optional
+from typing import Generator, Literal, NoReturn, Optional, Self
 
 # display 3 windows:
 #     top left = new A hunk with diff from original
@@ -67,22 +67,22 @@ class Pane:
         self.pad = curses.newpad(self.height, self.width)
 
     #FIXME: scrolling past the right or bottom edge causes repeating lines/chars
-    def scroll_vert(self, n: int):
+    def scroll_vert(self, n: int) -> None:
         self.vscroll = clamp(0, self.vscroll + n, self.height - 1)
         self.noutrefresh()
 
-    def scroll_horiz(self, n: int):
+    def scroll_horiz(self, n: int) -> None:
         self.hscroll = clamp(0, self.hscroll + n, self.width - 1)
         self.noutrefresh()
 
-    def noutrefresh(self):
+    def noutrefresh(self) -> None:
         self.pad.noutrefresh(
             self.vscroll, self.hscroll,
             self.rowmin, self.colmin,
             self.rowmax, self.colmax
         )
 
-    def addstr(self, row: int, col: int, s: str):
+    def addstr(self, row: int, col: int, s: str) -> None:
         try:
             self.pad.addstr(row, col, s)
         except curses.error:
@@ -198,12 +198,12 @@ class DLMerge:
         ]
         self._vsplit = .5
         self._hsplit = .5
-        self._dragging = False
+        self._dragging: bool | Literal['hsplit'] | Literal['vsplit'] = False
         self._focused = 2
         self._hscroll = [0, 0, 0]
         self._vscroll = [0, 0, 0]
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self._stdscr = curses.initscr()
         curses.cbreak()
         curses.noecho()
@@ -247,17 +247,17 @@ class DLMerge:
         return self
 
     def __exit__(
-            self,
-            type: type[BaseException] | None,
-            value: BaseException | None,
-            traceback: TracebackType | None
-        ):
+        self,
+        type: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: TracebackType | None
+    ) -> None:
         sys.stdout.write("\033[?1002l")
         sys.stdout.flush()
         curses.endwin()
 
     @property
-    def _vsplit_col(self):
+    def _vsplit_col(self) -> int:
         MIN_SIZE = 1
         return clamp(
             MIN_SIZE,
@@ -266,11 +266,11 @@ class DLMerge:
         )
 
     @_vsplit_col.setter
-    def _vsplit_col(self, value: int):
+    def _vsplit_col(self, value: int) -> None:
         self._vsplit = value / curses.COLS
 
     @property
-    def _hsplit_row(self):
+    def _hsplit_row(self) -> int:
         MIN_SIZE = 1
         return clamp(
             MIN_SIZE,
@@ -279,28 +279,28 @@ class DLMerge:
         )
 
     @_hsplit_row.setter
-    def _hsplit_row(self, value: int):
+    def _hsplit_row(self, value: int) -> None:
         self._hsplit = value / curses.LINES
 
-    def _draw_hsplit(self, ch: Optional[int | str] = None):
+    def _draw_hsplit(self, ch: Optional[int | str] = None) -> None:
         ch = normalize_ch(ch, curses.ACS_HLINE)
         self._stdscr.hline(self._hsplit_row, 0, ch, curses.COLS)
 
-    def _draw_vsplit(self, ch: Optional[int | str] = None):
+    def _draw_vsplit(self, ch: Optional[int | str] = None) -> None:
         ch = normalize_ch(ch, curses.ACS_VLINE)
         self._stdscr.vline(0, self._vsplit_col, ch, self._hsplit_row)
 
-    def _draw_tee(self, ch: Optional[int | str] = None):
+    def _draw_tee(self, ch: Optional[int | str] = None) -> None:
         ch = normalize_ch(ch, curses.ACS_BTEE)
         self._stdscr.addch(self._hsplit_row, self._vsplit_col, ch)
 
-    def _draw_borders(self):
+    def _draw_borders(self) -> None:
         self._draw_hsplit()
         self._draw_vsplit()
         self._draw_tee()
         self._stdscr.noutrefresh()
 
-    def _move_vsplit(self, col: int):
+    def _move_vsplit(self, col: int) -> None:
         if col == self._vsplit_col:
             return
         self._draw_vsplit(' ')
@@ -312,7 +312,7 @@ class DLMerge:
         self._panes[0].noutrefresh()
         self._panes[1].noutrefresh()
 
-    def _move_hsplit(self, row: int):
+    def _move_hsplit(self, row: int) -> None:
         if row == self._hsplit_row:
             return
         self._draw_hsplit(' ')
@@ -326,13 +326,13 @@ class DLMerge:
         for pane in self._panes:
             pane.noutrefresh()
 
-    def _draw_contents(self):
+    def _draw_contents(self) -> None:
         pane_a, pane_b, pane_m = self._panes
         pane_a.noutrefresh()
         pane_b.noutrefresh()
         pane_m.noutrefresh()
 
-    def run(self):
+    def run(self) -> int:
         self._draw_borders()
         self._draw_contents()
         while True:
@@ -449,7 +449,7 @@ class MergeParser:
                 self._pushed_back = None
         return next(self._tokens)
 
-    def _pushback_token(self, tok: Token):
+    def _pushback_token(self, tok: Token) -> None:
         if self._pushed_back:
             raise OverflowError('attempted second pushback')
         self._pushed_back = tok
@@ -534,7 +534,7 @@ class MergeParser:
         return label, body
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('file1')
     parser.add_argument('file2')
@@ -552,7 +552,7 @@ def main():
     with DLMerge(args.file1, args.file3, args.file2, merge) as dlmerge:
         c = dlmerge.run()
 
-    print(f'{curses.keyname(c)} (0x{c:02x})')
+    print(f'{curses.keyname(c)!r} (0x{c:02x})')
     exit()
 
 
