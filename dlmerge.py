@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 import argparse
 import curses
 from dataclasses import dataclass
+from enum import Enum, auto
 import re
 import sys
 import subprocess
-from pathlib import Path
 from types import TracebackType
-from typing import Generator, Literal, Optional
+from typing import Generator, Literal, NoReturn, Optional
 
 # display 3 windows:
 #     top left = new A hunk with diff from original
@@ -23,6 +25,7 @@ from typing import Generator, Literal, Optional
 # (B) accept combination, B first
 # (i) ignore all changes, use original version
 # (u) un-resolve
+# (t) toggle change diffs
 # (e) open the current conflict in an editor
 # (E) open the entire merged file in an editor
 # (d) diff latest merge results with original
@@ -38,33 +41,26 @@ from typing import Generator, Literal, Optional
 # (something) Save, quit, and open editor
 # Additional navigation with Home/End/PgUp/PgDn(space)
 
-def normalize_ch(ch: int | str | None, default: int) -> int:
-    if ch is None:
-        return default
-    if isinstance(ch, str):
-        return ord(ch)
-    return ch
+# Wishlist: Menus
 
 class Pane:
     def __init__(
         self,
         filename: str,
-        contents: list[str],
+        height: int,
+        width: int,
         rowmin: int, colmin: int,
         rowmax: int, colmax: int,
         label: Optional[str] = None
     ):
         self.filenmae = filename
-        self.contents = contents
         self.rowmin = rowmin; self.rowmax = rowmax
         self.colmin = colmin; self.colmax = colmax
         self.hscroll = 0
         self.vscroll = 0
-        self.height = len(contents)
-        self.width = max(len(line) for line in contents)
+        self.height = height
+        self.width = width
         self.pad = curses.newpad(self.height, self.width)
-        for i, line in enumerate(contents):
-            self.pad.addstr(i, 0, line)
 
     #FIXME: scrolling past the right or bottom edge causes repeating lines/chars
     def scroll_vert(self, n: int):
@@ -82,10 +78,96 @@ class Pane:
             self.rowmax, self.colmax
         )
 
+    def addstr(self, row: int, col: int, s: str):
+        try:
+            self.pad.addstr(row, col, s)
+        except curses.error:
+            pass  # can happen spuriously when writing to bottom right corner
+
+
+class ChangePane(Pane):
+    def __init__(
+        self,
+        filename: str,
+        orig: list[str],
+        new: list[str],
+        rowmin: int,
+        colmin: int,
+        rowmax: int,
+        colmax: int,
+        label: str | None = None
+    ):
+        #TODO: Use a diff instead of just using the new contents
+        height = len(new)
+        width = max(map(len, new))
+        super().__init__(filename, height, width, rowmin, colmin, rowmax, colmax, label)
+        for i, line in enumerate(new):
+            self.addstr(i, 0, line)
+
+
+class OutputPane(Pane):
+    def __init__(
+        self,
+        filename: str,
+        contents: list[Decision | list[str]],
+        rowmin: int,
+        colmin: int,
+        rowmax: int,
+        colmax: int,
+        label: str | None = None
+    ):
+        height = sum(
+            len(e.conflict.base) if isinstance(e, Decision) else len(e)
+            for e in contents
+        )
+        # FIXME: Should be different depending on decision resolution
+        lines_lists = (
+            e.conflict.base if isinstance(e, Decision) else e
+            for e in contents
+        )
+        width = 2 + max(
+            (len(line) for lines in lines_lists for line in lines),
+            default=0
+        )
+        super().__init__(filename, height, width, rowmin, colmin, rowmax, colmax, label)
+        i = 0
+        for e in contents:
+            if isinstance(e, Decision):
+                #TODO: Show something different depending on resolution
+                for line in e.conflict.base:
+                    self.pad.addch(i, 0, '!')
+                    self.addstr(i, 2, line)
+                    i += 1
+            else:
+                for line in e:
+                    self.pad.addch(i, 0, ' ')
+                    self.addstr(i, 2, line)
+                    i += 1
+
+
+class Resolution(Enum):
+    UNRESOLVED = auto()
+    USE_A = auto()
+    USE_B = auto()
+    USE_A_FIRST = auto()
+    USE_B_FIRST = auto()
+    USE_BASE = auto()
+
+
+@dataclass
+class Decision:
+    conflict: Conflict
+    resolution: Resolution = Resolution.UNRESOLVED
+
 
 class DLMerge:
-    def __init__(self, file_a: str, file_b: str, file_base: str):
+    def __init__(self, file_a: str, file_b: str, file_base: str, merge: list[list[str] | Conflict]):
         self._filenames = [file_a, file_b, file_base]
+        self._merge = merge
+        self._result = [
+            Decision(e) if isinstance(e, Conflict) else e
+            for e in merge
+        ]
         self._vsplit = .5
         self._hsplit = .5
         self._dragging = False
@@ -104,14 +186,35 @@ class DLMerge:
         sys.stdout.write("\033[?1002h")
         sys.stdout.flush()
 
-        contents = [Path(filename).read_text().splitlines() for filename in self._filenames]
-        self._panes = [
-            Pane(self._filenames[0], contents[0], 0, 0, self._hsplit_row - 1, self._vsplit_col - 1),
-            Pane(self._filenames[1], contents[1], 0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1),
-            Pane(self._filenames[2], contents[2], self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1),
+        conflict_index = 0
+        current_decision: Optional[Decision] = None
+        i = 0
+        for e in self._result:
+            if isinstance(e, Decision):
+                if i == conflict_index:
+                    current_decision = e
+                    break
+                else:
+                    i += 1
+        if not current_decision:
+            raise ValueError('No decisions to make')
+        self._panes: list[Pane] = [
+            ChangePane(self._filenames[0], current_decision.conflict.base, current_decision.conflict.a, 0, 0, self._hsplit_row - 1, self._vsplit_col - 1),
+            ChangePane(self._filenames[1], current_decision.conflict.base, current_decision.conflict.b, 0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1),
+            OutputPane(self._filenames[2], self._result, self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1),
         ]
 
         return self
+
+    def __exit__(
+            self,
+            type: type[BaseException] | None,
+            value: BaseException | None,
+            traceback: TracebackType | None
+        ):
+        sys.stdout.write("\033[?1002l")
+        sys.stdout.flush()
+        curses.endwin()
 
     @property
     def _vsplit_col(self):
@@ -130,16 +233,6 @@ class DLMerge:
     @_hsplit_row.setter
     def _hsplit_row(self, value: int):
         self._hsplit = value / curses.LINES
-
-    def __exit__(
-            self,
-            type: type[BaseException] | None,
-            value: BaseException | None,
-            traceback: TracebackType | None
-        ):
-        sys.stdout.write("\033[?1002l")
-        sys.stdout.flush()
-        curses.endwin()
 
     def _draw_hsplit(self, ch: Optional[int | str] = None):
         ch = normalize_ch(ch, curses.ACS_HLINE)
@@ -262,6 +355,14 @@ class DLMerge:
         pane.noutrefresh()
 
 
+def normalize_ch(ch: int | str | None, default: int) -> int:
+    if ch is None:
+        return default
+    if isinstance(ch, str):
+        return ord(ch)
+    return ch
+
+
 @dataclass
 class Conflict:
     base_label: str
@@ -321,10 +422,10 @@ class MergeParser:
             raise OverflowError('attempted second pushback')
         self._pushed_back = tok
 
-    def parse(self):
+    def parse(self) -> list[list[str] | Conflict]:
         return list(self._parse())
 
-    def _parse(self):
+    def _parse(self) -> Generator[list[str] | Conflict]:
         try:
             while (tok := self._next_token()).type != 'eof':
                 match tok.type:
@@ -340,7 +441,7 @@ class MergeParser:
             # Shouldn't happen
             raise IndexError('Unexpected end of token stream')
 
-    def _syntax_error(self, tok: Token):
+    def _syntax_error(self, tok: Token) -> NoReturn:
         TOKEN_TYPE_NAMES: dict[TokenType, str] = {
             'a': 'file A header',
             'base': 'base file header',
@@ -408,18 +509,15 @@ def main():
     parser.add_argument('file3')
     args = parser.parse_args()
 
-    result = subprocess.run(
+    diff3_result = subprocess.run(
         'git merge-file -p --zdiff3 --'.split(' ')
         + [args.file1, args.file2, args.file3],
         stdout=subprocess.PIPE,
         encoding='utf-8',
     )
 
-    merge = MergeParser(result.stdout.splitlines()).parse()
-    for element in merge:
-        print(element)
-
-    with DLMerge(args.file1, args.file3, args.file2) as dlmerge:
+    merge = MergeParser(diff3_result.stdout.splitlines()).parse()
+    with DLMerge(args.file1, args.file3, args.file2, merge) as dlmerge:
         c = dlmerge.run()
 
     print(f'{curses.keyname(c)} (0x{c:02x})')
