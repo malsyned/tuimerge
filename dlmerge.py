@@ -7,6 +7,7 @@ from enum import Enum, auto
 import re
 import sys
 import subprocess
+from tempfile import NamedTemporaryFile
 from types import TracebackType
 from typing import Generator, Literal, NoReturn, Optional
 
@@ -43,6 +44,9 @@ from typing import Generator, Literal, NoReturn, Optional
 
 # Wishlist: Menus
 
+def clamp[T: float](minimum: T, value: T, maximum: T) -> T:
+    return max(minimum, min(value, maximum))
+
 class Pane:
     def __init__(
         self,
@@ -64,11 +68,11 @@ class Pane:
 
     #FIXME: scrolling past the right or bottom edge causes repeating lines/chars
     def scroll_vert(self, n: int):
-        self.vscroll = max(0, min(self.height - 1, self.vscroll + n))
+        self.vscroll = clamp(0, self.vscroll + n, self.height - 1)
         self.noutrefresh()
 
     def scroll_horiz(self, n: int):
-        self.hscroll = max(0, min(self.width - 1, self.hscroll + n))
+        self.hscroll = clamp(0, self.hscroll + n, self.width - 1)
         self.noutrefresh()
 
     def noutrefresh(self):
@@ -97,11 +101,28 @@ class ChangePane(Pane):
         colmax: int,
         label: str | None = None
     ):
-        #TODO: Use a diff instead of just using the new contents
-        height = len(new)
-        width = max(map(len, new))
-        super().__init__(filename, height, width, rowmin, colmin, rowmax, colmax, label)
-        for i, line in enumerate(new):
+        with (
+            NamedTemporaryFile('w+', delete_on_close=False) as tmporig,
+            NamedTemporaryFile('w+', delete_on_close=False) as tmpnew,
+        ):
+            tmporig.writelines(f'{line}\n' for line in orig)
+            tmporig.close()
+
+            tmpnew.writelines(f'{line}\n' for line in new)
+            tmpnew.close()
+
+            diff_result = subprocess.run(
+                f'diff --text --unified={len(orig) + len(new)}'.split(' ')
+                + [tmporig.name, tmpnew.name],
+                stdout=subprocess.PIPE,
+                encoding='utf-8'
+            )
+        contents = diff_result.stdout.splitlines()[3:]  # skip headers
+        height = len(contents)
+        width = max(map(len, contents))
+        super().__init__(
+            filename, height, width, rowmin, colmin, rowmax, colmax, label)
+        for i, line in enumerate(contents):
             self.addstr(i, 0, line)
 
 
@@ -129,7 +150,8 @@ class OutputPane(Pane):
             (len(line) for lines in lines_lists for line in lines),
             default=0
         )
-        super().__init__(filename, height, width, rowmin, colmin, rowmax, colmax, label)
+        super().__init__(
+            filename, height, width, rowmin, colmin, rowmax, colmax, label)
         i = 0
         for e in contents:
             if isinstance(e, Decision):
@@ -161,7 +183,13 @@ class Decision:
 
 
 class DLMerge:
-    def __init__(self, file_a: str, file_b: str, file_base: str, merge: list[list[str] | Conflict]):
+    def __init__(
+        self,
+        file_a: str,
+        file_b: str,
+        file_base: str,
+        merge: list[list[str] | Conflict]
+    ):
         self._filenames = [file_a, file_b, file_base]
         self._merge = merge
         self._result = [
@@ -199,9 +227,21 @@ class DLMerge:
         if not current_decision:
             raise ValueError('No decisions to make')
         self._panes: list[Pane] = [
-            ChangePane(self._filenames[0], current_decision.conflict.base, current_decision.conflict.a, 0, 0, self._hsplit_row - 1, self._vsplit_col - 1),
-            ChangePane(self._filenames[1], current_decision.conflict.base, current_decision.conflict.b, 0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1),
-            OutputPane(self._filenames[2], self._result, self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1),
+            ChangePane(
+                self._filenames[0],
+                current_decision.conflict.base, current_decision.conflict.a,
+                0, 0, self._hsplit_row - 1, self._vsplit_col - 1
+            ),
+            ChangePane(
+                self._filenames[1],
+                current_decision.conflict.base, current_decision.conflict.b,
+                0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1
+            ),
+            OutputPane(
+                self._filenames[2],
+                self._result,
+                self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
+            ),
         ]
 
         return self
@@ -219,7 +259,11 @@ class DLMerge:
     @property
     def _vsplit_col(self):
         MIN_SIZE = 1
-        return max(MIN_SIZE, min(curses.COLS - 1 - MIN_SIZE, int(curses.COLS * self._vsplit)))
+        return clamp(
+            MIN_SIZE,
+            int(curses.COLS * self._vsplit),
+            curses.COLS - 1 - MIN_SIZE
+        )
 
     @_vsplit_col.setter
     def _vsplit_col(self, value: int):
@@ -228,7 +272,11 @@ class DLMerge:
     @property
     def _hsplit_row(self):
         MIN_SIZE = 1
-        return max(MIN_SIZE, min(curses.LINES - 1 - MIN_SIZE, int(curses.LINES * self._hsplit)))
+        return clamp(
+            MIN_SIZE,
+            int(curses.LINES * self._hsplit),
+            curses.LINES - 1 - MIN_SIZE
+        )
 
     @_hsplit_row.setter
     def _hsplit_row(self, value: int):
@@ -337,22 +385,6 @@ class DLMerge:
 
                 if bstate & curses.BUTTON1_RELEASED:
                     self._dragging = False
-
-    def _scroll_vert(self, n: int):
-        pane = self._panes[self._focused]
-        vscroll = pane.vscroll
-        vscroll += n
-        vscroll = max(0, min(pane.height, vscroll))
-        pane.vscroll = vscroll
-        pane.noutrefresh()
-
-    def _scroll_horiz(self, n: int):
-        pane = self._panes[self._focused]
-        hscroll = pane.hscroll
-        hscroll += n
-        hscroll = max(0, min(pane.width, hscroll))
-        pane.hscroll = hscroll
-        pane.noutrefresh()
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
