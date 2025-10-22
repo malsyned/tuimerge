@@ -1,0 +1,478 @@
+/**
+ * @file main.c
+ * @author Dennis Lambe Jr. <dennis@profirmserv.com>
+ * @brief Main entry point and support routines
+ * @date 2025-04-09
+ *
+ * @copyright Copyright (c) 2025
+ *
+ */
+
+#include <stdalign.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <FreeRTOS.h>
+#include <task.h>
+#include "array.h"
+#include "hercules_adc.h"
+#include "hercules_i2c.h"
+#include "sci_stdio.h"
+#include "flame_rod.h"
+#include "board.h"
+#include "sync_input.h"
+#include "freertos_rm44l520.h"
+#include "mpuutil.h"
+
+/*
+ * TODO: move the code that uses these headers into a board init or a gpio
+ * abstraction, then delete these includes.
+ */
+#include <adc.h>               // for adcInit
+#include <ecap.h>              // for ecapInit
+#include <etpwm.h>             // for etpwmInit, etpwmStartTBCLK
+#include <het.h>               // for hetREG1, hetInit
+#include <i2c.h>               // for i2cInit, i2cREG1
+#include <sci.h>               // for sciREG, sciEnterResetState, sciExitRes...
+#include "halcogen_helpers.h"  // for i2c_clear_stop, i2c_run_during_debug
+#include "mcp23x08.h"          // for mcp23x08_write_reg, MCP23X08_ADDR_OLAT
+
+#if INCLUDE_vTaskSuspend
+# define FREERTOS_WAIT_FOREVER portMAX_DELAY
+#endif
+
+extern char __shared_data_region_start__;
+extern char __shared_data_region_end__;
+
+/// @c TaskParameters_t.xRegions member initializer for shared RW data
+#define SHARED_DATA_REGION { \
+    &__shared_data_region_start__, \
+    &__shared_data_region_end__ - &__shared_data_region_start__, \
+    portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER \
+}
+
+/// @cond FOR_DEBUGGING
+
+static void flame_debug_output(
+    FILE *stream, uint32_t nreading, float adc0_v, float adc1_v,
+    float fp_r, float fn_r, bool flame)
+{
+    fprintf(stream, "%6d,%6.4f,%9.0f,%6.4f,%9.0f,%8.6f,%s",
+            nreading, adc0_v, fp_r, adc1_v, fn_r, fn_r / fp_r,
+            flame ? "FLAME" : "");
+    for (int i = 0; i < board.sync_input.dins_length; i++) {
+        fprintf(stream, ",%d", board.sync_input.dins[i].state);
+    }
+    fprintf(stream, "\n");
+}
+
+static void developer_values_update(
+    FILE *sci_stdio, sync_input_flame_adc_results_t *results)
+{
+    uint8_t olat;
+    float v_ref = board.flame_rod.circuit->v_ref;
+    float adc0_v = hercules_adc_counts_to_volts(v_ref, results->reading[0]);
+    float adc1_v = hercules_adc_counts_to_volts(v_ref, results->reading[1]);
+    float fp_r, fn_r;
+    flame_rod_result_t result =
+        flame_rod_adc_to_resistance(&board.flame_rod, adc0_v, adc1_v, &fp_r, &fn_r);
+    bool flame = result == FLAME_ROD_RESULT_FLAME;
+
+    olat = mcp23x08_read_reg(&board.u10, MCP23X08_ADDR_OLAT);
+    if (flame)
+        olat |= 1u << BOARD_U10_GPIO_FLAME_LED;
+    else
+        olat &= ~(1u << BOARD_U10_GPIO_FLAME_LED);
+    mcp23x08_write_reg(&board.u10, MCP23X08_ADDR_OLAT, olat);
+
+    FILE *ostreams[] = {stdout, sci_stdio};
+    for (int i = 0; i < ARRAY_SIZE(ostreams); i++) {
+        flame_debug_output(ostreams[i], results->seq, adc0_v, adc1_v, fp_r, fn_r, flame);
+    }
+}
+
+/// @endcond FOR_DEBUGGING
+
+/**
+ * @brief for incrementing indefinitely
+ *
+ */
+
+PRIVILEGED_DATA
+static StaticTask_t example_task_tcb; ///< demo task control block
+
+/// demo task task
+alignas(configMINIMAL_STACK_SIZE * 2 * sizeof(StackType_t))
+static StackType_t example_task_size[configMINIMAL_STACK_SIZE * 2];
+
+/// demo task data
+typedef struct {
+    FILE sci_file; ///< stdio stream for reading from and writing to the serial port
+    volatile int i; ///< counter for use in Cortex Live Watch
+    sync_input_livewatch_t sync_input_livewatch; ///< sync_input livewatch stuff
+} example_task_data_t;
+
+MPU_REGION_BSS_DEFINE(example_task_data_t, example_task_data); ///< @private
+
+/**
+ * @brief Simple FreeRTOS task that increments @c i in a loop with a delay
+ *
+ * @param parameters FreeRTOS task parameter (not used)
+ */
+static void example_task(void *parameters)
+{
+    TickType_t xLastWakeTime;
+    sync_input_flame_adc_results_t reading;
+    example_task_data_t *taskData = parameters;
+    FILE *sci_stdio = &taskData->sci_file;
+    bool blink = false;
+
+    sci_fdev_setup_stream(sci_stdio, _FDEV_SETUP_RW);
+
+    fprintf(sci_stdio, "\nWelcome!\n");
+
+    // turn off all LEDs
+    mcp23x08_write_reg(&board.u10, MCP23X08_ADDR_OLAT, 0x00);
+    mcp23x08_write_reg(&board.u10, MCP23X08_ADDR_IODIR, 0x00);
+    xLastWakeTime = xTaskGetTickCount();
+    for (;;)
+    {
+        taskData->i++;
+        xQueueReceive(board.sync_input.adc_reading_queue, &reading, FREERTOS_WAIT_FOREVER);
+        developer_values_update(sci_stdio, &reading);
+        sync_input_livewatch_update(&taskData->sync_input_livewatch);
+
+        if (reading.seq % 15 == 0)
+        {
+            if (blink)
+                mcp23x08_write_reg(&board.u10, MCP23X08_ADDR_OLAT, 1 << BOARD_U10_GPIO_ALARM_RLY_LED);
+            else
+                mcp23x08_write_reg(&board.u10, MCP23X08_ADDR_OLAT, 0x00);
+            blink = !blink;
+        }
+    }
+}
+
+__attribute__((noinline))
+static TaskHandle_t create_example_task(void)
+{
+    TaskParameters_t example_task_parameters = {
+        .pvTaskCode = example_task,
+        .pcName = "example",
+        .usStackDepth = ARRAY_SIZE(example_task_size),
+        .pvParameters = &example_task_data,
+        .uxPriority = configMAX_PRIORITIES - 1U | portPRIVILEGE_BIT,
+        .puxStackBuffer = &( example_task_size[ 0 ] ),
+        .xRegions = {
+            SHARED_DATA_REGION,
+            {
+                &example_task_data, MPU_REGION_SIZE(example_task_data),
+                portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER
+            },
+            {
+                &board, MPU_REGION_SIZE(board),
+                portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER
+            },
+            {
+                &g_i2cTransfer_t, MPU_REGION_SIZE(g_i2cTransfer_t),
+                portMPU_REGION_READ_ONLY | portMPU_REGION_EXECUTE_NEVER
+            },
+            {
+                (void*)i2cREG1, MPU_REGION_SIZE(*i2cREG1),
+                portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER
+            },
+            {
+                (void*)sciREG, MPU_REGION_SIZE(*sciREG),
+                portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER
+            },
+            // These two are just to support sync_input_livewatch_update, which
+            // should be deleted or disabled after it's no longer needed for
+            // development.
+            {
+                (void*)ecapREG1, MPU_REGION_SIZE(*ecapREG1),
+                portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER
+            },
+            {
+                (void*)etpwmREG1, MPU_REGION_SIZE(*etpwmREG1),
+                portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER
+            },
+        },
+        .pxTaskBuffer = &( example_task_tcb )
+    };
+
+    TaskHandle_t handle = NULL;
+    (void)xTaskCreateRestrictedStatic(&example_task_parameters, &handle);
+    return handle;
+}
+
+#define HB_PERIPH hetREG1 ///< Register block for peripheral containing hearbeat GPIO
+#define HB_PERIPH_BIT 30  ///< ID of heartbeat GPIO within its owning peripheral
+
+PRIVILEGED_DATA
+static StaticTask_t hb_task_tcb; ///< Heartbeat task control block
+
+/// Heartbeat task stack
+alignas(configMINIMAL_STACK_SIZE * 2 * sizeof(StackType_t))
+static StackType_t hb_task_stack[configMINIMAL_STACK_SIZE * 2];
+
+int you_cant_have_this = 0; ///< @private
+const uint32_t undef_insn = 0xE7F000F0; ///< @private
+
+/// @private
+static void behave_badly(volatile uint32_t arg1, volatile uint32_t arg2)
+{
+    // data aborts
+    // you_cant_have_this = 0xa5a5a5a5;
+    // *(uint32_t *)&hb_task_tcb = 0xa5a5a5a5;
+
+    // prefetch abort:
+    // ((void (*)(void))hb_task_stack)();
+
+    // undefined instruction abort
+    // __builtin_trap();
+
+    (void)arg1;
+    (void)arg2;
+}
+
+/// heartbeat task data type
+typedef struct {
+    int period_hz; ///< blink frequency
+} hb_task_data_t;
+
+/// heartbeat task data
+MPU_REGION_DEFINE(hb_task_data_t, hb_task_data) =  {
+    .period_hz = 1
+};
+
+/**
+ * @brief FreeRTOS task to blink the heartbeat LED
+ *
+ * @param parameters FreeRTOS task parameter: blink frequency in Hz as an @c int
+ */
+static void hb_task(void *parameters)
+{
+    hb_task_data_t *task_data = parameters;
+    TickType_t xLastWakeTime;
+    TickType_t period_ticks = configTICK_RATE_HZ / task_data->period_hz;
+
+    behave_badly(0xdeadbeef, 0xcafef00d);
+
+    xLastWakeTime = xTaskGetTickCount();
+    for (;;) {
+        HB_PERIPH->DSET = 1u << HB_PERIPH_BIT;
+        vTaskDelayUntil(&xLastWakeTime, period_ticks / 2);
+        HB_PERIPH->DCLR = 1u << HB_PERIPH_BIT;
+        vTaskDelayUntil(&xLastWakeTime, period_ticks - period_ticks / 2);
+    }
+}
+
+__attribute__((noinline))
+static TaskHandle_t create_hb_task(void)
+{
+
+    TaskParameters_t hb_task_parameters = {
+        .pvTaskCode = hb_task,
+        .pcName = "heartbeat",
+        .usStackDepth = ARRAY_SIZE(hb_task_stack),
+        .pvParameters = &hb_task_data,
+        .uxPriority = configMAX_PRIORITIES - 2U,
+        .puxStackBuffer = hb_task_stack,
+        .xRegions = {
+            SHARED_DATA_REGION,
+            {
+                &hb_task_data, MPU_REGION_SIZE(hb_task_data),
+                portMPU_REGION_READ_ONLY | portMPU_REGION_EXECUTE_NEVER
+            },
+            {
+                (void*)hetREG1, MPU_REGION_SIZE(*hetREG1),
+                portMPU_REGION_READ_WRITE | portMPU_REGION_EXECUTE_NEVER
+            },
+        },
+        .pxTaskBuffer = &hb_task_tcb,
+    };
+
+    TaskHandle_t handle;
+    (void)xTaskCreateRestrictedStatic(&hb_task_parameters, &handle);
+    return handle;
+}
+
+/**
+ * @brief RTOS switching-aware ADC1 Event Group ISR stub
+ *
+ */
+static void adc1_group0_interrupt(void)
+{
+    adcREG1->GxINTFLG[0U] = 9U;
+
+    adcNotification(adcREG1, adcGROUP0);
+}
+
+/** @brief RTOS switching-aware I2C ISR stub */
+void i2c_interrupt(void) __attribute__ ((weak, interrupt("IRQ")));
+void i2c_interrupt(void)
+{
+    // uint32_t vec = i2cREG1->IVR & 0x7;
+    // if (vec) {
+    //     uint32_t flags = 1 << (vec - 1);
+    //     i2cREG1->IMR &= ~I2C_TX_INT;
+    //     i2cREG1->IMR |= I2C_TX_INT;
+    // }
+    uint32_t flags = i2cREG1->STR;
+    // i2cREG1->STR = flags;
+    i2cNotification(i2cREG1, flags);
+}
+
+/// supervisor task control block
+PRIVILEGED_DATA static StaticTask_t supervisor_task_tcb;
+
+/// supervisor task stack
+PRIVILEGED_DATA
+static StackType_t supervisor_task_stack[ configMINIMAL_STACK_SIZE ];
+
+/**
+ * @brief Initialize system, start additional tasks, supervise tasks
+ *
+ * @param parameters FreeRTOS task parameter
+ */
+PRIVILEGED_FUNCTION
+static void supervisor_task(void *parameters)
+{
+    register_switching_isr(14, adc1_group0_interrupt);
+    // register_switching_isr(66, i2c_interrupt);
+    hercules_i2c_init(i2cREG1);
+    TaskHandle_t example_task_handle = create_example_task();
+    hercules_i2c_grant_permission(example_task_handle);
+    vGrantAccessToQueue(example_task_handle, board.sync_input.adc_reading_queue);
+    TaskHandle_t hb_task_handle = create_hb_task();
+
+    while (true)
+        vTaskDelay(FREERTOS_WAIT_FOREVER);
+}
+
+/**
+ * @brief copy initial values of .privileged_data section into RAM
+ *
+ */
+static void init_privileged_data_section(void)
+{
+    extern char _siPrivData, __start_priv_data, __end_priv_data;
+    char *src = &_siPrivData;
+    char *dst = &__start_priv_data;
+    size_t len = &__end_priv_data - dst;
+    memcpy(dst, src, len);
+}
+
+/**
+ * @brief copy initial values of .shared_data section into RAM
+ */
+static void init_shared_data_section(void)
+{
+    extern char _siSharedData, __start_shared_data, __end_shared_data;
+    char *src = &_siSharedData;
+    char *dst = &__start_shared_data;
+    size_t len = &__end_shared_data - dst;
+    memcpy(dst, src, len);
+}
+typedef void (*t_isrFuncPTR)(void);
+typedef volatile struct vimRam
+{
+    t_isrFuncPTR ISR[128U];
+} vimRAM_t;
+#define vimRAM ((vimRAM_t *)0xFFF82000U)
+/**
+ * @brief Main entry point of application
+ *
+ * @details When the application starts, the C runtime will ensure that this
+ * function is called after the @c .data and @c .bss sections have been
+ * initialized.
+ *
+ * @param argc argument count
+ * @param argv null-terminated list of arguments
+ * @return process result code, 0 for success
+ */
+int main(int argc, char** argv)
+{
+    init_privileged_data_section();
+    init_shared_data_section();
+
+    vimRAM->ISR[67] = i2c_interrupt;
+
+    hetInit();
+    i2cInit();
+    i2c_run_during_debug(i2cREG1);
+    // HALCoGen forces this bit high, but that could be an error if the first
+    // I2C transaction happens to attempt a repeated start.
+    i2c_clear_stop(i2cREG1);
+
+    sciInit();
+    sciEnterResetState(sciREG);
+    sci_run_during_debug(sciREG);
+    sciExitResetState(sciREG);
+
+    sync_input_init(&board.sync_input);
+    vQueueAddToRegistry(board.sync_input.adc_reading_queue, "AC Sync input ADC readings");
+
+    adcInit();
+    ecapInit();
+    etpwmInit();
+    etpwmStartTBCLK();
+
+    sync_input_start(&board.sync_input);
+
+    printf("Welcome!\n");
+
+    flame_rod_init(&board.flame_rod);
+
+    xTaskCreateStatic(
+        supervisor_task,
+        "Supervisor",
+        ARRAY_SIZE(supervisor_task_stack),
+        NULL,
+        configMAX_PRIORITIES - 1U | portPRIVILEGE_BIT,
+        supervisor_task_stack,
+        &supervisor_task_tcb);
+
+    vTaskStartScheduler();
+
+    /* vTaskStartScheduler() should never return. Lock up if it ever does */
+    for(;;)
+        ;
+
+    return 0;
+}
+
+/**
+ * @brief busy-loop implementation of _exit
+ *
+ * @details newlib and picolibc both require the BSP to provide an
+ * implementation of _exit when not using their crt0 runtime. For lack of
+ * anything better to do, loop forever.
+ *
+ * @param status exit code
+ */
+_Noreturn void _exit(int status)
+{
+    (void)status;
+    for (;;)
+        ;
+}
+
+#if configCHECK_FOR_STACK_OVERFLOW > 0
+
+/**
+ * @brief Called when FreeRTOS detects a stack overflow
+ *
+ * @param xTask the handle of the offending task
+ * @param pcTaskName the name of the offending task
+ */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+    (void)xTask;
+    (void)pcTaskName;
+    for (;;)
+        ;
+}
+
+#endif /* configCHECK_FOR_STACK_OVERFLOW > 0 */
