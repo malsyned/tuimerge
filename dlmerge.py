@@ -214,36 +214,6 @@ class DLMerge:
         sys.stdout.write("\033[?1002h")
         sys.stdout.flush()
 
-        conflict_index = 0
-        current_decision: Optional[Decision] = None
-        i = 0
-        for e in self._result:
-            if isinstance(e, Decision):
-                if i == conflict_index:
-                    current_decision = e
-                    break
-                else:
-                    i += 1
-        if not current_decision:
-            raise ValueError('No decisions to make')
-        self._panes: list[Pane] = [
-            ChangePane(
-                self._filenames[0],
-                current_decision.conflict.base, current_decision.conflict.a,
-                0, 0, self._hsplit_row - 1, self._vsplit_col - 1
-            ),
-            ChangePane(
-                self._filenames[1],
-                current_decision.conflict.base, current_decision.conflict.b,
-                0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1
-            ),
-            OutputPane(
-                self._filenames[2],
-                self._result,
-                self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
-            ),
-        ]
-
         return self
 
     def __exit__(
@@ -333,6 +303,36 @@ class DLMerge:
         pane_m.noutrefresh()
 
     def run(self) -> int:
+        conflict_index = 0
+        current_decision: Optional[Decision] = None
+        i = 0
+        for e in self._result:
+            if isinstance(e, Decision):
+                if i == conflict_index:
+                    current_decision = e
+                    break
+                else:
+                    i += 1
+        if not current_decision:
+            raise ValueError('No decisions to make')
+        self._panes: list[Pane] = [
+            ChangePane(
+                self._filenames[0],
+                current_decision.conflict.base, current_decision.conflict.a,
+                0, 0, self._hsplit_row - 1, self._vsplit_col - 1
+            ),
+            ChangePane(
+                self._filenames[1],
+                current_decision.conflict.base, current_decision.conflict.b,
+                0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1
+            ),
+            OutputPane(
+                self._filenames[2],
+                self._result,
+                self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
+            ),
+        ]
+
         self._draw_borders()
         self._draw_contents()
         while True:
