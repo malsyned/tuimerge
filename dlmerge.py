@@ -5,7 +5,6 @@ import curses
 from dataclasses import dataclass
 from enum import Enum, auto
 import re
-import sys
 import subprocess
 from tempfile import NamedTemporaryFile
 from types import TracebackType
@@ -181,6 +180,9 @@ class Decision:
     conflict: Conflict
     resolution: Resolution = Resolution.UNRESOLVED
 
+def term_enable_mouse_drag(enable: bool = True):
+    c = 'h' if enable else 'l'
+    print(f'\033[?1002{c}', flush=True)
 
 class DLMerge:
     def __init__(
@@ -211,8 +213,7 @@ class DLMerge:
         self._stdscr.keypad(True)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
-        sys.stdout.write("\033[?1002h")
-        sys.stdout.flush()
+        term_enable_mouse_drag()
 
         return self
 
@@ -222,8 +223,7 @@ class DLMerge:
         value: BaseException | None,
         traceback: TracebackType | None
     ) -> None:
-        sys.stdout.write("\033[?1002l")
-        sys.stdout.flush()
+        term_enable_mouse_drag(False)
         curses.endwin()
 
     @property
