@@ -177,6 +177,10 @@ class OutputPane(Pane):
         for e in self._contents:
             if isinstance(e, Decision):
                 if conflict == cur_conflict:
+                    pane_height = self.rowmax + 1 - self.rowmin
+                    conflict_height = e.linecount
+                    if conflict_height < pane_height:
+                        lineno -= (pane_height - conflict_height) // 2
                     self.scroll_vert_to(lineno)
                     break
                 else:
