@@ -69,11 +69,18 @@ class Pane:
 
     #FIXME: scrolling past the right or bottom edge causes repeating lines/chars
     def scroll_vert(self, n: int) -> None:
-        self.vscroll = clamp(0, self.vscroll + n, self.height - 1)
+        self.scroll_vert_to(self.vscroll + n)
+
+    def scroll_vert_to(self, n: int) -> None:
+        self.vscroll = clamp(0, n, self.height - 1)
         self.noutrefresh()
 
     def scroll_horiz(self, n: int) -> None:
-        self.hscroll = clamp(0, self.hscroll + n, self.width - 1)
+        self.scroll_horiz_to(self.hscroll + n)
+        self.noutrefresh()
+
+    def scroll_horiz_to(self, n: int) -> None:
+        self.hscroll = clamp(0, n, self.width - 1)
         self.noutrefresh()
 
     def noutrefresh(self) -> None:
@@ -83,9 +90,10 @@ class Pane:
             self.rowmax, self.colmax
         )
 
-    def addstr(self, row: int, col: int, s: str) -> None:
+
+def addstr(window: curses.window, row: int, col: int, s: str) -> None:
         try:
-            self.pad.addstr(row, col, s)
+            window.addstr(row, col, s)
         except curses.error:
             pass  # can happen spuriously when writing to bottom right corner
 
@@ -124,7 +132,7 @@ class ChangePane(Pane):
         super().__init__(
             filename, height, width, rowmin, colmin, rowmax, colmax, label)
         for i, line in enumerate(contents):
-            self.addstr(i, 0, line)
+            addstr(self.pad, i, 0, line)
 
 
 class OutputPane(Pane):
@@ -138,34 +146,44 @@ class OutputPane(Pane):
         colmax: int,
         label: str | None = None
     ):
+        self._contents = contents
         height = sum(
-            len(e.conflict.base) if isinstance(e, Decision) else len(e)
+            e.linecount if isinstance(e, Decision) else len(e)
             for e in contents
         )
         # FIXME: Should be different depending on decision resolution
-        lines_lists = (
-            e.conflict.base if isinstance(e, Decision) else e
+        chunk_widths = (
+            e.width
+            if isinstance(e, Decision)
+            else max((len(line) for line in e), default=0)
             for e in contents
         )
-        width = 2 + max(
-            (len(line) for lines in lines_lists for line in lines),
-            default=0
-        )
+        width = 1 + max(chunk_widths, default=0)
         super().__init__(
             filename, height, width, rowmin, colmin, rowmax, colmax, label)
         i = 0
         for e in contents:
             if isinstance(e, Decision):
-                #TODO: Show something different depending on resolution
-                for line in e.conflict.base:
-                    self.pad.addch(i, 0, '!')
-                    self.addstr(i, 2, line)
-                    i += 1
+                i = e.draw(self.pad, i)
             else:
                 for line in e:
                     self.pad.addch(i, 0, ' ')
-                    self.addstr(i, 2, line)
+                    addstr(self.pad, i, 2, line)
                     i += 1
+
+    def scroll_to_conflict(self, conflict: int) -> None:
+        lineno = 0
+        cur_conflict = 0
+        for e in self._contents:
+            if isinstance(e, Decision):
+                if conflict == cur_conflict:
+                    self.scroll_vert_to(lineno)
+                    break
+                else:
+                    lineno += e.linecount
+                    cur_conflict += 1
+            else:
+                lineno += len(e)
 
 
 class Resolution(Enum):
@@ -182,6 +200,24 @@ class Decision:
     conflict: Conflict
     resolution: Resolution = Resolution.UNRESOLVED
 
+    @property
+    def linecount(self) -> int:
+        #TODO: Return something different depending on resolution
+        return max(1, len(self.conflict.base))
+
+    @property
+    def width(self) -> int:
+        #TODO: Return something different depending on resolution
+        return max((len(line) for line in self.conflict.base), default=4)
+
+    def draw(self, window: curses.window, lineno: int) -> int:
+        #TODO: Show something different depending on resolution
+        text = self.conflict.base or ['----']
+        for line in text:
+            window.addch(lineno, 0, '!')
+            addstr(window, lineno, 1, line)
+            lineno += 1
+        return lineno
 
 def terminal_supports_xterm_mouse():
     xm = curses.tigetstr('XM')
@@ -331,6 +367,13 @@ class DLMerge:
                     i += 1
         if not current_decision:
             raise ValueError('No decisions to make')
+
+        self._output_pane = OutputPane(
+                self._filenames[2],
+                self._result,
+                self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
+            )
+
         self._panes: list[Pane] = [
             ChangePane(
                 self._filenames[0],
@@ -342,12 +385,9 @@ class DLMerge:
                 current_decision.conflict.base, current_decision.conflict.b,
                 0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1
             ),
-            OutputPane(
-                self._filenames[2],
-                self._result,
-                self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
-            ),
+            self._output_pane,
         ]
+        self._output_pane.scroll_to_conflict(conflict_index)
 
         self._draw_borders()
         self._draw_contents()
