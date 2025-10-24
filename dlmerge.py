@@ -391,6 +391,10 @@ class DLMerge:
             ),
             self._output_pane,
         ]
+
+        max_change_height = max(pane.height for pane in self._panes[:2])
+        new_hsplit = min(max_change_height, curses.LINES // 2)
+        self._move_hsplit(new_hsplit)
         self._output_pane.scroll_to_conflict(conflict_index)
 
         self._draw_borders()
