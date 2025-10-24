@@ -4,6 +4,7 @@ import argparse
 import curses
 from dataclasses import dataclass
 from enum import Enum, auto
+import os
 import re
 import subprocess
 from tempfile import NamedTemporaryFile
@@ -45,6 +46,7 @@ from typing import Generator, Literal, NoReturn, Optional, Self
 
 def clamp[T: float](minimum: T, value: T, maximum: T) -> T:
     return max(minimum, min(value, maximum))
+
 
 class Pane:
     def __init__(
@@ -180,9 +182,23 @@ class Decision:
     conflict: Conflict
     resolution: Resolution = Resolution.UNRESOLVED
 
+
+def terminal_supports_xterm_mouse():
+    xm = curses.tigetstr('XM')
+    if xm and b'1006' in xm:
+        return True
+    terminal_type = os.environ.get('TERM', 'unknown')
+    if 'xterm' in terminal_type:
+        return True
+    return False
+
+
 def term_enable_mouse_drag(enable: bool = True):
+    if not terminal_supports_xterm_mouse():
+        return
     c = 'h' if enable else 'l'
     print(f'\033[?1002{c}', flush=True)
+
 
 class DLMerge:
     def __init__(
