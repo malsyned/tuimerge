@@ -161,15 +161,15 @@ class OutputPane(Pane):
         width = 1 + max(chunk_widths, default=0)
         super().__init__(
             filename, height, width, rowmin, colmin, rowmax, colmax, label)
-        i = 0
+        lineno = 0
         for e in contents:
             if isinstance(e, Decision):
-                i = e.draw(self.pad, i)
+                lineno = e.draw(self.pad, lineno)
             else:
                 for line in e:
-                    self.pad.addch(i, 0, ' ')
-                    addstr(self.pad, i, 2, line)
-                    i += 1
+                    self.pad.addch(lineno, 0, ' ')
+                    addstr(self.pad, lineno, 2, line)
+                    lineno += 1
 
     def scroll_to_conflict(self, conflict: int) -> None:
         lineno = 0
