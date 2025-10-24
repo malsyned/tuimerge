@@ -318,7 +318,7 @@ class DLMerge:
         pane_b.noutrefresh()
         pane_m.noutrefresh()
 
-    def run(self) -> int:
+    def run(self) -> None:
         conflict_index = 0
         current_decision: Optional[Decision] = None
         i = 0
@@ -356,8 +356,7 @@ class DLMerge:
             c = self._stdscr.getch()
 
             if c == ord('q'):
-                #TODO: This is a temporary debugging interface
-                return c
+                return
             elif c == ord('\t'):
                 self._focused = (self._focused + 1) % 3
             elif c == curses.KEY_BTAB:
@@ -552,23 +551,22 @@ class MergeParser:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('file1')
-    parser.add_argument('file2')
-    parser.add_argument('file3')
+    parser.add_argument('MYFILE')
+    parser.add_argument('OLDFILE')
+    parser.add_argument('YOURFILE')
     args = parser.parse_args()
 
     diff3_result = subprocess.run(
         'git merge-file -p --zdiff3 --'.split(' ')
-        + [args.file1, args.file2, args.file3],
+        + [args.MYFILE, args.OLDFILE, args.YOURFILE],
         stdout=subprocess.PIPE,
         encoding='utf-8',
     )
 
     merge = MergeParser(diff3_result.stdout.splitlines()).parse()
-    with DLMerge(args.file1, args.file3, args.file2, merge) as dlmerge:
-        c = dlmerge.run()
+    with DLMerge(args.MYFILE, args.YOURFILE, args.OLDFILE, merge) as dlmerge:
+        dlmerge.run()
 
-    print(f'{curses.keyname(c)!r} (0x{c:02x})')
     exit()
 
 
