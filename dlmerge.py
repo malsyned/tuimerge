@@ -90,6 +90,12 @@ class Pane:
             self.rowmax, self.colmax
         )
 
+    def resize(self, height: int, width: int) -> None:
+        # NOTE: doesn't call noutrefresh() itself
+        self.height = height
+        self.width = width
+        self.pad.resize(height, width)
+
 
 def addstr(window: curses.window, row: int, col: int, s: str) -> None:
         try:
@@ -102,14 +108,18 @@ class ChangePane(Pane):
     def __init__(
         self,
         filename: str,
-        orig: list[str],
-        new: list[str],
         rowmin: int,
         colmin: int,
         rowmax: int,
         colmax: int,
         label: str | None = None
     ):
+        height = rowmax + 1 - rowmin
+        width = colmax + 1 - colmin
+        super().__init__(
+            filename, height, width, rowmin, colmin, rowmax, colmax, label)
+
+    def set_change(self, orig: list[str], new: list[str]) -> None:
         with (
             NamedTemporaryFile('w+', delete_on_close=False) as tmporig,
             NamedTemporaryFile('w+', delete_on_close=False) as tmpnew,
@@ -129,11 +139,11 @@ class ChangePane(Pane):
         contents = diff_result.stdout.splitlines()[3:]  # skip headers
         height = len(contents)
         width = max(map(len, contents))
-        super().__init__(
-            filename, height, width, rowmin, colmin, rowmax, colmax, label)
+        self.pad.erase()
+        self.resize(height, width)
         for i, line in enumerate(contents):
             addstr(self.pad, i, 0, line)
-
+        self.noutrefresh()
 
 class OutputPane(Pane):
     def __init__(
@@ -416,20 +426,42 @@ class DLMerge:
         pane_b.noutrefresh()
         pane_m.noutrefresh()
 
-    def run(self) -> None:
-        conflict_index = 0
+    def _select_conflict(self, n: int) -> None:
         current_decision: Optional[Decision] = None
         i = 0
         for e in self._result:
             if isinstance(e, Decision):
-                if i == conflict_index:
+                if i == n:
+                    self._selected_conflict = n
                     current_decision = e
                     break
                 else:
                     i += 1
-        if not current_decision:
-            raise ValueError('No decisions to make')
+        else:
+            return
 
+        self._change_panes[0].set_change(current_decision.conflict.base, current_decision.conflict.a)
+        self._change_panes[1].set_change(current_decision.conflict.base, current_decision.conflict.b)
+
+        max_change_height = max(pane.height for pane in self._change_panes)
+        new_hsplit = min(max_change_height, curses.LINES // 2)
+        self._move_hsplit(new_hsplit)
+        self._output_pane.scroll_to_conflict(self._selected_conflict)
+
+        self._draw_borders()
+        self._draw_contents()
+
+    def run(self) -> None:
+        self._change_panes = [
+            ChangePane(
+                self._filenames[0],
+                0, 0, self._hsplit_row - 1, self._vsplit_col - 1
+            ),
+            ChangePane(
+                self._filenames[1],
+                0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1
+            ),
+        ]
         self._output_pane = OutputPane(
                 self._filenames[2],
                 self._result,
@@ -437,26 +469,12 @@ class DLMerge:
             )
 
         self._panes: list[Pane] = [
-            ChangePane(
-                self._filenames[0],
-                current_decision.conflict.base, current_decision.conflict.a,
-                0, 0, self._hsplit_row - 1, self._vsplit_col - 1
-            ),
-            ChangePane(
-                self._filenames[1],
-                current_decision.conflict.base, current_decision.conflict.b,
-                0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1
-            ),
+            *self._change_panes,
             self._output_pane,
         ]
 
-        max_change_height = max(pane.height for pane in self._panes[:2])
-        new_hsplit = min(max_change_height, curses.LINES // 2)
-        self._move_hsplit(new_hsplit)
-        self._output_pane.scroll_to_conflict(conflict_index)
+        self._select_conflict(0)
 
-        self._draw_borders()
-        self._draw_contents()
         while True:
             curses.doupdate()
             c = self._stdscr.getch()
@@ -506,6 +524,10 @@ class DLMerge:
 
                 if bstate & curses.BUTTON1_RELEASED:
                     self._dragging = False
+            elif c == ord('p'):
+                self._select_conflict(self._selected_conflict - 1)
+            elif c == ord('n'):
+                self._select_conflict(self._selected_conflict + 1)
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
