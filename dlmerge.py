@@ -153,11 +153,45 @@ class ChangePane(Pane):
                 addstr(self.pad, i, 0, line)
         self.noutrefresh()
 
+
+class MergeOutput:
+    def __init__(self, merge: list[list[str] | Conflict]) -> None:
+        self.chunks = [Decision(c) if isinstance(c, Conflict) else c for c in merge]
+        self.decisions = [c for c in self.chunks if isinstance(c, Decision)]
+
+    @property
+    def height(self) -> int:
+        return sum(
+            e.linecount if isinstance(e, Decision) else len(e)
+            for e in self.chunks
+        )
+
+    @property
+    def width(self) -> int:
+        chunk_widths = (
+            e.width
+            if isinstance(e, Decision)
+            else max((len(line) for line in e), default=0)
+            for e in self.chunks
+        )
+        return 2 + max(chunk_widths, default=0)
+
+    def draw(self, w: curses.window) -> None:
+        lineno = 0
+        for e in self.chunks:
+            if isinstance(e, Decision):
+                lineno = e.draw(w, lineno)
+            else:
+                for line in e:
+                    w.addch(lineno, 0, ' ')
+                    addstr(w, lineno, 2, line)
+                    lineno += 1
+
 class OutputPane(Pane):
     def __init__(
         self,
         filename: str,
-        contents: list[Decision | list[str]],
+        contents: MergeOutput,
         rowmin: int,
         colmin: int,
         rowmax: int,
@@ -165,33 +199,17 @@ class OutputPane(Pane):
         label: str | None = None
     ):
         self._contents = contents
-        height = sum(
-            e.linecount if isinstance(e, Decision) else len(e)
-            for e in contents
-        )
-        chunk_widths = (
-            e.width
-            if isinstance(e, Decision)
-            else max((len(line) for line in e), default=0)
-            for e in contents
-        )
-        width = 2 + max(chunk_widths, default=0)
         super().__init__(
-            filename, height, width, rowmin, colmin, rowmax, colmax, label)
-        lineno = 0
-        for e in contents:
-            if isinstance(e, Decision):
-                lineno = e.draw(self.pad, lineno)
-            else:
-                for line in e:
-                    self.pad.addch(lineno, 0, ' ')
-                    addstr(self.pad, lineno, 2, line)
-                    lineno += 1
+            filename,
+            contents.height, contents.width,
+            rowmin, colmin, rowmax, colmax, label
+        )
+        contents.draw(self.pad)
 
     def scroll_to_conflict(self, conflict: int) -> None:
         lineno = 0
         cur_conflict = 0
-        for e in self._contents:
+        for e in self._contents.chunks:
             if isinstance(e, Decision):
                 if conflict == cur_conflict:
                     pane_height = self.rowmax + 1 - self.rowmin
@@ -351,10 +369,7 @@ class DLMerge:
     ):
         self._filenames = [file_a, file_b, file_base]
         self._merge = merge
-        self._result = [
-            Decision(e) if isinstance(e, Conflict) else e
-            for e in merge
-        ]
+        self._merge_result = MergeOutput(merge)
         self._vsplit = .5
         self._hsplit = .5
         self._dragging: bool | Literal['hsplit'] | Literal['vsplit'] = False
@@ -462,18 +477,11 @@ class DLMerge:
         pane_m.noutrefresh()
 
     def _select_conflict(self, n: int) -> None:
-        current_decision: Optional[Decision] = None
-        i = 0
-        for e in self._result:
-            if isinstance(e, Decision):
-                if i == n:
-                    self._selected_conflict = n
-                    current_decision = e
-                    break
-                else:
-                    i += 1
-        else:
+        if n not in range(len(self._merge_result.decisions)):
             return
+
+        self._selected_conflict = n
+        current_decision = self._merge_result.decisions[n]
 
         self._change_panes[0].set_change(current_decision.conflict.base, current_decision.conflict.a)
         self._change_panes[1].set_change(current_decision.conflict.base, current_decision.conflict.b)
@@ -499,7 +507,7 @@ class DLMerge:
         ]
         self._output_pane = OutputPane(
                 self._filenames[2],
-                self._result,
+                self._merge_result,
                 self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
             )
 
