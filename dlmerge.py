@@ -174,9 +174,10 @@ class MergeOutput:
             else max((len(line) for line in e), default=0)
             for e in self.chunks
         )
-        return 2 + max(chunk_widths, default=0)
+        return 1 + max(chunk_widths, default=0)
 
     def draw(self, w: curses.window) -> None:
+        w.erase()
         lineno = 0
         for e in self.chunks:
             if isinstance(e, Decision):
@@ -184,32 +185,32 @@ class MergeOutput:
             else:
                 for line in e:
                     w.addch(lineno, 0, ' ')
-                    addstr(w, lineno, 2, line)
+                    addstr(w, lineno, 1, line)
                     lineno += 1
 
 class OutputPane(Pane):
     def __init__(
         self,
         filename: str,
-        contents: MergeOutput,
+        merge_output: MergeOutput,
         rowmin: int,
         colmin: int,
         rowmax: int,
         colmax: int,
         label: str | None = None
     ):
-        self._contents = contents
+        self._merge_output = merge_output
         super().__init__(
             filename,
-            contents.height, contents.width,
+            merge_output.height, merge_output.width,
             rowmin, colmin, rowmax, colmax, label
         )
-        contents.draw(self.pad)
+        merge_output.draw(self.pad)
 
     def scroll_to_conflict(self, conflict: int) -> None:
         lineno = 0
         cur_conflict = 0
-        for e in self._contents.chunks:
+        for e in self._merge_output.chunks:
             if isinstance(e, Decision):
                 if conflict == cur_conflict:
                     pane_height = self.rowmax + 1 - self.rowmin
@@ -224,6 +225,11 @@ class OutputPane(Pane):
             else:
                 lineno += len(e)
 
+    def resolve(self, conflict: int, resolution: Resolution) -> None:
+        self._merge_output.decisions[conflict].resolution = resolution
+        self.resize(self._merge_output.height, self._merge_output.width)
+        self._merge_output.draw(self.pad)
+        self.noutrefresh()
 
 class Resolution(Enum):
     UNRESOLVED = auto()
@@ -278,7 +284,7 @@ class Decision:
         return max(1, len(text))
 
     def _text_width(self, text: list[str]) -> int:
-        return max(map(len, text), default=len('(empty)'))
+        return max(map(len, text), default=len('--'))
 
     @property
     def width(self) -> int:
@@ -305,12 +311,12 @@ class Decision:
     ) -> int:
         if text:
             for line in text:
-                window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE)
-                addstr(window, lineno, 2, line, color.attr)
+                window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE | curses.A_BOLD)
+                addstr(window, lineno, 1, line, color.attr)
                 lineno += 1
         else:
-            window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE)
-            addstr(window, lineno, 1, f'~(empty)', color.attr)
+            window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE | curses.A_BOLD)
+            window.addch(lineno, 1, curses.ACS_RARROW, color.attr | curses.A_REVERSE)
             lineno += 1
         return lineno
 
@@ -339,7 +345,7 @@ class Decision:
                 lineno = self._draw_b(window, lineno)
                 lineno = self._draw_a(window, lineno)
             case Resolution.USE_BASE:
-                lineno = self._draw_base(window, ColorPair.BASE, 'i', lineno)
+                lineno = self._draw_base(window, ColorPair.BASE, ' ', lineno)
         return lineno
 
 def terminal_supports_xterm_mouse():
@@ -369,7 +375,7 @@ class DLMerge:
     ):
         self._filenames = [file_a, file_b, file_base]
         self._merge = merge
-        self._merge_result = MergeOutput(merge)
+        self._merge_output = MergeOutput(merge)
         self._vsplit = .5
         self._hsplit = .5
         self._dragging: bool | Literal['hsplit'] | Literal['vsplit'] = False
@@ -477,11 +483,11 @@ class DLMerge:
         pane_m.noutrefresh()
 
     def _select_conflict(self, n: int) -> None:
-        if n not in range(len(self._merge_result.decisions)):
+        if n not in range(len(self._merge_output.decisions)):
             return
 
         self._selected_conflict = n
-        current_decision = self._merge_result.decisions[n]
+        current_decision = self._merge_output.decisions[n]
 
         self._change_panes[0].set_change(current_decision.conflict.base, current_decision.conflict.a)
         self._change_panes[1].set_change(current_decision.conflict.base, current_decision.conflict.b)
@@ -507,7 +513,7 @@ class DLMerge:
         ]
         self._output_pane = OutputPane(
                 self._filenames[2],
-                self._merge_result,
+                self._merge_output,
                 self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
             )
 
@@ -571,6 +577,18 @@ class DLMerge:
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n'):
                 self._select_conflict(self._selected_conflict + 1)
+            elif c == ord('a'):
+                self._output_pane.resolve(self._selected_conflict, Resolution.USE_A)
+            elif c == ord('b'):
+                self._output_pane.resolve(self._selected_conflict, Resolution.USE_B)
+            elif c == ord('A'):
+                self._output_pane.resolve(self._selected_conflict, Resolution.USE_A_FIRST)
+            elif c == ord('B'):
+                self._output_pane.resolve(self._selected_conflict, Resolution.USE_B_FIRST)
+            elif c == ord('i'):
+                self._output_pane.resolve(self._selected_conflict, Resolution.USE_BASE)
+            elif c == ord('u'):
+                self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
