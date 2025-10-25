@@ -324,7 +324,7 @@ class Decision:
                 lineno += 1
         else:
             window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE | curses.A_BOLD)
-            window.addch(lineno, 1, curses.ACS_RARROW, color.attr | curses.A_REVERSE)
+            window.addch(lineno, 1, curses.ACS_RARROW, color.attr | curses.A_REVERSE | curses.A_BOLD)
             lineno += 1
         return lineno
 
