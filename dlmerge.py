@@ -230,7 +230,7 @@ class Decision:
         return max(1, len(text))
 
     def _text_width(self, text: list[str]) -> int:
-        return max(map(len, text), default=len('empty)'))
+        return max(map(len, text), default=len('(empty)'))
 
     @property
     def width(self) -> int:
@@ -260,7 +260,7 @@ class Decision:
                 addstr(window, lineno, 2, line)
                 lineno += 1
         else:
-            addstr(window, lineno, 0, f'{prefix}(empty)')
+            addstr(window, lineno, 0, f'{prefix}~(empty)')
             lineno += 1
         return lineno
 
