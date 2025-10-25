@@ -179,6 +179,7 @@ class MergeOutput:
     def draw(self, w: curses.window) -> None:
         w.erase()
         lineno = 0
+        #FIXME: Deal properly with ^M and other control characters
         for e in self.chunks:
             if isinstance(e, Decision):
                 lineno = e.draw(w, lineno)
@@ -616,6 +617,7 @@ class DLMerge:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             elif c == ord('w'):
                 with open(self._filenames[2], 'w') as f:
+                    #FIXME: Deal properly with files that don't have newlines
                     f.writelines(f'{line}\n' for line in self._merge_output.lines())
                     return
 
