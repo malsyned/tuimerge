@@ -188,6 +188,14 @@ class MergeOutput:
                     addstr(w, lineno, 1, line)
                     lineno += 1
 
+    def lines(self) -> Generator[str]:
+        for e in self.chunks:
+            if isinstance(e, Decision):
+                yield from e.lines()
+            else:
+                for line in e:
+                    yield line
+
 class OutputPane(Pane):
     def __init__(
         self,
@@ -327,7 +335,6 @@ class Decision:
         return self._draw_with_prefix(window, self.conflict.b, ColorPair.B, 'B', lineno)
 
     def _draw_base(self, window: curses.window, color: ColorPair, p: str, lineno: int) -> int:
-        #TODO: Different colors for unresolved vs. resolved
         return self._draw_with_prefix(window, self.conflict.base, color, p, lineno)
 
     def draw(self, window: curses.window, lineno: int) -> int:
@@ -347,6 +354,24 @@ class Decision:
             case Resolution.USE_BASE:
                 lineno = self._draw_base(window, ColorPair.BASE, ' ', lineno)
         return lineno
+
+    def lines(self) -> Generator[str]:
+        match self.resolution:
+            case Resolution.UNRESOLVED:
+                #TODO: Write out the diff3 block
+                yield from self.conflict.base
+            case Resolution.USE_A:
+                yield from self.conflict.a
+            case Resolution.USE_B:
+                yield from self.conflict.b
+            case Resolution.USE_A_FIRST:
+                yield from self.conflict.a
+                yield from self.conflict.b
+            case Resolution.USE_B_FIRST:
+                yield from self.conflict.b
+                yield from self.conflict.a
+            case Resolution.USE_BASE:
+                yield from self.conflict.base
 
 def terminal_supports_xterm_mouse():
     xm = curses.tigetstr('XM')
@@ -589,6 +614,10 @@ class DLMerge:
                 self._output_pane.resolve(self._selected_conflict, Resolution.USE_BASE)
             elif c == ord('u'):
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
+            elif c == ord('w'):
+                with open(self._filenames[2], 'w') as f:
+                    f.writelines(f'{line}\n' for line in self._merge_output.lines())
+                    return
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
