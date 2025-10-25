@@ -151,14 +151,13 @@ class OutputPane(Pane):
             e.linecount if isinstance(e, Decision) else len(e)
             for e in contents
         )
-        # FIXME: Should be different depending on decision resolution
         chunk_widths = (
             e.width
             if isinstance(e, Decision)
             else max((len(line) for line in e), default=0)
             for e in contents
         )
-        width = 1 + max(chunk_widths, default=0)
+        width = 2 + max(chunk_widths, default=0)
         super().__init__(
             filename, height, width, rowmin, colmin, rowmax, colmax, label)
         lineno = 0
@@ -206,21 +205,80 @@ class Decision:
 
     @property
     def linecount(self) -> int:
-        #TODO: Return something different depending on resolution
-        return max(1, len(self.conflict.base))
+        match self.resolution:
+            case Resolution.UNRESOLVED | Resolution.USE_BASE:
+                return self._text_height(self.conflict.base)
+            case Resolution.USE_A:
+                return self._text_height(self.conflict.a)
+            case Resolution.USE_B:
+                return self._text_height(self.conflict.b)
+            case Resolution.USE_A_FIRST | Resolution.USE_B_FIRST:
+                return (self._text_height(self.conflict.a)
+                        + self._text_height(self.conflict.b))
+
+    def _text_height(self, text: list[str]) -> int:
+        return max(1, len(text))
+
+    def _text_width(self, text: list[str]) -> int:
+        return max(map(len, text), default=len('empty)'))
 
     @property
     def width(self) -> int:
-        #TODO: Return something different depending on resolution
-        return max((len(line) for line in self.conflict.base), default=4)
+        match self.resolution:
+            case Resolution.UNRESOLVED | Resolution.USE_BASE:
+                return self._text_width(self.conflict.base)
+            case Resolution.USE_A:
+                return self._text_width(self.conflict.a)
+            case Resolution.USE_B:
+                return self._text_width(self.conflict.b)
+            case Resolution.USE_A_FIRST | Resolution.USE_B_FIRST:
+                return max(
+                    self._text_width(self.conflict.a),
+                    self._text_width(self.conflict.b)
+                )
+
+    def _draw_with_prefix(
+        self,
+        window: curses.window,
+        text: list[str],
+        prefix: str,
+        lineno: int
+    ) -> int:
+        if text:
+            for line in text:
+                window.addch(lineno, 0, prefix)
+                addstr(window, lineno, 2, line)
+                lineno += 1
+        else:
+            addstr(window, lineno, 0, f'{prefix}(empty)')
+            lineno += 1
+        return lineno
+
+    def _draw_a(self, window: curses.window, lineno: int) -> int:
+        return self._draw_with_prefix(window, self.conflict.a, 'A', lineno)
+
+    def _draw_b(self, window: curses.window, lineno: int) -> int:
+        return self._draw_with_prefix(window, self.conflict.b, 'B', lineno)
+
+    def _draw_base(self, window: curses.window, p: str, lineno: int) -> int:
+        return self._draw_with_prefix(window, self.conflict.base, p, lineno)
 
     def draw(self, window: curses.window, lineno: int) -> int:
-        #TODO: Show something different depending on resolution
-        text = self.conflict.base or ['----']
-        for line in text:
-            window.addch(lineno, 0, '!')
-            addstr(window, lineno, 1, line)
-            lineno += 1
+        match self.resolution:
+            case Resolution.UNRESOLVED:
+                lineno = self._draw_base(window, '!', lineno)
+            case Resolution.USE_A:
+                lineno = self._draw_a(window, lineno)
+            case Resolution.USE_B:
+                lineno = self._draw_b(window, lineno)
+            case Resolution.USE_A_FIRST:
+                lineno = self._draw_a(window, lineno)
+                lineno = self._draw_b(window, lineno)
+            case Resolution.USE_B_FIRST:
+                lineno = self._draw_b(window, lineno)
+                lineno = self._draw_a(window, lineno)
+            case Resolution.USE_BASE:
+                lineno = self._draw_base(window, 'i', lineno)
         return lineno
 
 def terminal_supports_xterm_mouse():
