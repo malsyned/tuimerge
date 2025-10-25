@@ -259,12 +259,12 @@ class ColorPair(IntEnum):
 
     @classmethod
     def init(cls) -> None:
-        curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, curses.A_NORMAL)
-        curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, curses.A_NORMAL)
-        curses.init_pair(cls.A, curses.COLOR_CYAN, curses.A_NORMAL)
-        curses.init_pair(cls.B, curses.COLOR_BLUE, curses.A_NORMAL)
-        curses.init_pair(cls.BASE, curses.COLOR_WHITE, curses.A_NORMAL)
-        curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, curses.A_NORMAL)
+        curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, -1)
+        curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, -1)
+        curses.init_pair(cls.A, curses.COLOR_CYAN, -1)
+        curses.init_pair(cls.B, curses.COLOR_BLUE, -1)
+        curses.init_pair(cls.BASE, curses.COLOR_WHITE, -1)
+        curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, -1)
 
     @property
     def attr(self) -> int:
@@ -293,7 +293,7 @@ class Decision:
         return max(1, len(text))
 
     def _text_width(self, text: list[str]) -> int:
-        return max(map(len, text), default=len('--'))
+        return max(map(len, text), default=len('-'))
 
     @property
     def width(self) -> int:
@@ -320,12 +320,12 @@ class Decision:
     ) -> int:
         if text:
             for line in text:
-                window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE | curses.A_BOLD)
+                window.addch(lineno, 0, prefix, color.attr | curses.A_STANDOUT)
                 addstr(window, lineno, 1, line, color.attr)
                 lineno += 1
         else:
-            window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE | curses.A_BOLD)
-            window.addch(lineno, 1, curses.ACS_RARROW, color.attr | curses.A_REVERSE | curses.A_BOLD)
+            window.addch(lineno, 0, prefix, color.attr | curses.A_STANDOUT)
+            window.addch(lineno, 1, curses.ACS_RARROW, color.attr | curses.A_STANDOUT)
             lineno += 1
         return lineno
 
@@ -412,6 +412,7 @@ class DLMerge:
     def __enter__(self) -> Self:
         self._stdscr = curses.initscr()
         curses.start_color()
+        curses.use_default_colors()
         ColorPair.init()
         curses.cbreak()
         curses.noecho()
