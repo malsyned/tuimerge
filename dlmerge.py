@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import curses
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum, IntEnum, auto
 import os
 import re
 import subprocess
@@ -97,9 +97,12 @@ class Pane:
         self.pad.resize(height, width)
 
 
-def addstr(window: curses.window, row: int, col: int, s: str) -> None:
+def addstr(window: curses.window, row: int, col: int, s: str, attr: Optional[int] = None) -> None:
         try:
-            window.addstr(row, col, s)
+            if attr is None:
+                window.addstr(row, col, s)
+            else:
+                window.addstr(row, col, s, attr)
         except curses.error:
             pass  # can happen spuriously when writing to bottom right corner
 
@@ -142,7 +145,12 @@ class ChangePane(Pane):
         self.pad.erase()
         self.resize(height, width)
         for i, line in enumerate(contents):
-            addstr(self.pad, i, 0, line)
+            if line[0] == '+':
+                addstr(self.pad, i, 0, line, ColorPair.DIFF_ADDED.attr)
+            elif line[0] == '-':
+                addstr(self.pad, i, 0, line, ColorPair.DIFF_REMOVED.attr)
+            else:
+                addstr(self.pad, i, 0, line)
         self.noutrefresh()
 
 class OutputPane(Pane):
@@ -208,6 +216,28 @@ class Resolution(Enum):
     USE_BASE = auto()
 
 
+class ColorPair(IntEnum):
+    DIFF_REMOVED = 1
+    DIFF_ADDED = auto()
+    A = auto()
+    B = auto()
+    BASE = auto()
+    UNRESOLVED = auto()
+
+    @classmethod
+    def init(cls) -> None:
+        curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, curses.A_NORMAL)
+        curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, curses.A_NORMAL)
+        curses.init_pair(cls.A, curses.COLOR_CYAN, curses.A_NORMAL)
+        curses.init_pair(cls.B, curses.COLOR_BLUE, curses.A_NORMAL)
+        curses.init_pair(cls.BASE, curses.COLOR_WHITE, curses.A_NORMAL)
+        curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, curses.A_NORMAL)
+
+    @property
+    def attr(self) -> int:
+        return curses.color_pair(self)
+
+
 @dataclass
 class Decision:
     conflict: Conflict
@@ -251,32 +281,35 @@ class Decision:
         self,
         window: curses.window,
         text: list[str],
+        color: ColorPair,
         prefix: str,
         lineno: int
     ) -> int:
         if text:
             for line in text:
-                window.addch(lineno, 0, prefix)
-                addstr(window, lineno, 2, line)
+                window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE)
+                addstr(window, lineno, 2, line, color.attr)
                 lineno += 1
         else:
-            addstr(window, lineno, 0, f'{prefix}~(empty)')
+            window.addch(lineno, 0, prefix, color.attr | curses.A_REVERSE)
+            addstr(window, lineno, 1, f'~(empty)', color.attr)
             lineno += 1
         return lineno
 
     def _draw_a(self, window: curses.window, lineno: int) -> int:
-        return self._draw_with_prefix(window, self.conflict.a, 'A', lineno)
+        return self._draw_with_prefix(window, self.conflict.a, ColorPair.A, 'A', lineno)
 
     def _draw_b(self, window: curses.window, lineno: int) -> int:
-        return self._draw_with_prefix(window, self.conflict.b, 'B', lineno)
+        return self._draw_with_prefix(window, self.conflict.b, ColorPair.B, 'B', lineno)
 
-    def _draw_base(self, window: curses.window, p: str, lineno: int) -> int:
-        return self._draw_with_prefix(window, self.conflict.base, p, lineno)
+    def _draw_base(self, window: curses.window, color: ColorPair, p: str, lineno: int) -> int:
+        #TODO: Different colors for unresolved vs. resolved
+        return self._draw_with_prefix(window, self.conflict.base, color, p, lineno)
 
     def draw(self, window: curses.window, lineno: int) -> int:
         match self.resolution:
             case Resolution.UNRESOLVED:
-                lineno = self._draw_base(window, '!', lineno)
+                lineno = self._draw_base(window, ColorPair.UNRESOLVED, '!', lineno)
             case Resolution.USE_A:
                 lineno = self._draw_a(window, lineno)
             case Resolution.USE_B:
@@ -288,7 +321,7 @@ class Decision:
                 lineno = self._draw_b(window, lineno)
                 lineno = self._draw_a(window, lineno)
             case Resolution.USE_BASE:
-                lineno = self._draw_base(window, 'i', lineno)
+                lineno = self._draw_base(window, ColorPair.BASE, 'i', lineno)
         return lineno
 
 def terminal_supports_xterm_mouse():
@@ -331,6 +364,8 @@ class DLMerge:
 
     def __enter__(self) -> Self:
         self._stdscr = curses.initscr()
+        curses.start_color()
+        ColorPair.init()
         curses.cbreak()
         curses.noecho()
         curses.curs_set(0)
