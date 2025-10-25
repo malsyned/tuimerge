@@ -417,6 +417,7 @@ class DLMerge:
         curses.cbreak()
         curses.noecho()
         curses.curs_set(0)
+        self._stdscr.leaveok(True)
         self._stdscr.keypad(True)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
