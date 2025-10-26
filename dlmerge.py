@@ -439,7 +439,7 @@ class DLMerge:
         MIN_SIZE = 1
         return clamp(
             MIN_SIZE,
-            int(curses.COLS * self._vsplit),
+            round(curses.COLS * self._vsplit),
             curses.COLS - 1 - MIN_SIZE
         )
 
@@ -452,7 +452,7 @@ class DLMerge:
         MIN_SIZE = 1
         return clamp(
             MIN_SIZE,
-            int(curses.LINES * self._hsplit),
+            round(curses.LINES * self._hsplit),
             curses.LINES - 1 - MIN_SIZE
         )
 
