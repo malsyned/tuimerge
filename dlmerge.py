@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import curses
+import curses.panel as panel
 from dataclasses import dataclass
 from enum import Enum, IntEnum, auto
 import os
@@ -49,52 +50,106 @@ def clamp[T: float](minimum: T, value: T, maximum: T) -> T:
 
 
 class Pane:
+    MIN_HEIGHT = 2
+    MIN_WIDTH = 2
+
     def __init__(
         self,
         filename: str,
-        height: int,
-        width: int,
-        rowmin: int, colmin: int,
-        rowmax: int, colmax: int,
+        nlines: int,
+        ncols: int,
+        begin_line: int,
+        begin_col: int,
         label: Optional[str] = None
     ):
         self.filename = filename
-        self.rowmin = rowmin; self.rowmax = rowmax
-        self.colmin = colmin; self.colmax = colmax
-        self.hscroll = 0
-        self.vscroll = 0
-        self.height = height
-        self.width = width
-        self.pad = curses.newpad(self.height, self.width)
+        self._set_size_attrs(nlines, ncols, begin_line, begin_col)
+        self._hscroll = 0
+        self._vscroll = 0
+
+        self._win, title, gutter, content = self._create_wins()
+        self._title_panel = panel.new_panel(title)
+        self._gutter_panel = panel.new_panel(gutter)
+        self._content_panel = panel.new_panel(content)
+        self._gutter_pad = curses.newpad(1, 1)
+        self._content_pad = curses.newpad(1, 1)
+
+    def _set_size_attrs(self, nlines: int, ncols: int, begin_line: int, begin_col: int) -> None:
+        self._nlines = nlines
+        self._ncols = ncols
+        self._begin_line = begin_line
+        self._begin_col = begin_col
+
+    def _create_wins(self) -> tuple[curses.window, curses.window, curses.window, curses.window]:
+        win = curses.newwin(self._nlines, self._ncols, self._begin_line, self._begin_col)
+        title = win.derwin(1, self._ncols, 0, 0)
+        gutter = win.derwin(self._nlines - 1, 1, 1, 0)
+        content = win.derwin(self._nlines - 1, self._ncols - 1, 1, 1)
+        return win, title, gutter, content
 
     #FIXME: scrolling past the right or bottom edge causes repeating lines/chars
     def scroll_vert(self, n: int) -> None:
-        self.scroll_vert_to(self.vscroll + n)
+        self.scroll_vert_to(self._vscroll + n)
 
     def scroll_vert_to(self, n: int) -> None:
-        self.vscroll = clamp(0, n, self.height - 1)
-        self.noutrefresh()
+        self._vscroll = clamp(0, n, self.height - 1)
+        self._draw()
 
     def scroll_horiz(self, n: int) -> None:
-        self.scroll_horiz_to(self.hscroll + n)
-        self.noutrefresh()
+        self.scroll_horiz_to(self._hscroll + n)
 
     def scroll_horiz_to(self, n: int) -> None:
-        self.hscroll = clamp(0, n, self.width - 1)
-        self.noutrefresh()
+        self._hscroll = clamp(0, n, self.width - 1)
+        self._draw()
 
-    def noutrefresh(self) -> None:
-        self.pad.noutrefresh(
-            self.vscroll, self.hscroll,
-            self.rowmin, self.colmin,
-            self.rowmax, self.colmax
-        )
+    def _draw_title(self) -> None:
+        titlewin = self._title_panel.window()
+        # TODO: Focus
+        attr = curses.A_STANDOUT # if self._focus else curses.A_NORMAL
+        try:
+            # TODO: More information in the title
+            titlewin.addstr(0, 0, self.filename, curses.A_UNDERLINE | attr)
+            titlewin.clrtobot()
+        except curses.error:
+            pass
 
-    def resize(self, height: int, width: int) -> None:
-        # NOTE: doesn't call noutrefresh() itself
-        self.height = height
-        self.width = width
-        self.pad.resize(height, width)
+    @property
+    def width(self) -> int:
+        _, cols = self._content_pad.getmaxyx()
+        return cols
+
+    @property
+    def height(self) -> int:
+        lines, _ = self._content_pad.getmaxyx()
+        return lines
+
+    def _resize_content(self, nlines: int, ncols: int) -> None:
+        self._content_pad.resize(nlines, ncols)
+
+    def resize(self, nlines: int, ncols: int, begin_line: int, begin_col: int) -> None:
+        self._set_size_attrs(nlines, ncols, begin_line, begin_col)
+
+        self._win, title, gutter, content = self._create_wins()
+        self._title_panel.replace(title)
+        self._content_panel.replace(content)
+        self._gutter_panel.replace(gutter)
+
+        self._draw()
+
+    def _draw(self) -> None:
+        self._draw_title()
+        pad_to_win(self._gutter_pad, self._gutter_panel.window(), self._vscroll, 0)
+        pad_to_win(self._content_pad, self._content_panel.window(), self._vscroll, self._hscroll)
+
+
+def pad_to_win(pad: curses.window, win: curses.window, sminline: int, smincol: int) -> None:
+    winlines, wincols = win.getmaxyx()
+    padlines, padcols = pad.getmaxyx()
+    copylines = clamp(0, winlines, padlines - sminline)
+    copycols = clamp(0, wincols, padcols - smincol)
+    win.erase()
+    if copylines and copycols:
+        pad.overwrite(win, sminline, smincol, 0, 0, copylines - 1, copycols - 1)
 
 
 def addstr(window: curses.window, row: int, col: int, s: str, attr: Optional[int] = None) -> None:
@@ -111,16 +166,14 @@ class ChangePane(Pane):
     def __init__(
         self,
         filename: str,
-        rowmin: int,
-        colmin: int,
-        rowmax: int,
-        colmax: int,
+        nlines: int,
+        ncols: int,
+        begin_line: int,
+        begin_col: int,
         label: str | None = None
     ):
-        height = rowmax + 1 - rowmin
-        width = colmax + 1 - colmin
         super().__init__(
-            filename, height, width, rowmin, colmin, rowmax, colmax, label)
+            filename, nlines, ncols, begin_line, begin_col, label)
 
     def set_change(self, orig: list[str], new: list[str]) -> None:
         with (
@@ -142,16 +195,16 @@ class ChangePane(Pane):
         contents = diff_result.stdout.splitlines()[3:]  # skip headers
         height = len(contents)
         width = max(map(len, contents))
-        self.pad.erase()
-        self.resize(height, width)
+        self._content_pad.erase()
+        self._resize_content(height, width)
         for i, line in enumerate(contents):
             if line[0] == '+':
-                addstr(self.pad, i, 0, line, ColorPair.DIFF_ADDED.attr)
+                addstr(self._content_pad, i, 0, line, ColorPair.DIFF_ADDED.attr)
             elif line[0] == '-':
-                addstr(self.pad, i, 0, line, ColorPair.DIFF_REMOVED.attr)
+                addstr(self._content_pad, i, 0, line, ColorPair.DIFF_REMOVED.attr)
             else:
-                addstr(self.pad, i, 0, line)
-        self.noutrefresh()
+                addstr(self._content_pad, i, 0, line)
+        self._draw()
 
 
 class MergeOutput:
@@ -202,19 +255,18 @@ class OutputPane(Pane):
         self,
         filename: str,
         merge_output: MergeOutput,
-        rowmin: int,
-        colmin: int,
-        rowmax: int,
-        colmax: int,
+        nlines: int,
+        ncols: int,
+        begin_line: int,
+        begin_col: int,
         label: str | None = None
     ):
         self._merge_output = merge_output
-        super().__init__(
-            filename,
-            merge_output.height, merge_output.width,
-            rowmin, colmin, rowmax, colmax, label
-        )
-        merge_output.draw(self.pad)
+
+        super().__init__(filename, nlines, ncols, begin_line, begin_col, label)
+        self._resize_content(merge_output.height, merge_output.width)
+        merge_output.draw(self._content_pad)
+        self._draw()
 
     def scroll_to_conflict(self, conflict: int) -> None:
         lineno = 0
@@ -222,7 +274,7 @@ class OutputPane(Pane):
         for e in self._merge_output.chunks:
             if isinstance(e, Decision):
                 if conflict == cur_conflict:
-                    pane_height = self.rowmax + 1 - self.rowmin
+                    pane_height, _ = self._content_panel.window().getmaxyx()
                     conflict_height = e.linecount
                     if conflict_height < pane_height:
                         lineno -= (pane_height - conflict_height) // 2
@@ -236,9 +288,9 @@ class OutputPane(Pane):
 
     def resolve(self, conflict: int, resolution: Resolution) -> None:
         self._merge_output.decisions[conflict].resolution = resolution
-        self.resize(self._merge_output.height, self._merge_output.width)
-        self._merge_output.draw(self.pad)
-        self.noutrefresh()
+        self._resize_content(self._merge_output.height, self._merge_output.width)
+        self._merge_output.draw(self._content_pad)
+        self._draw()
 
 class Resolution(Enum):
     UNRESOLVED = auto()
@@ -406,8 +458,6 @@ class DLMerge:
         self._hsplit = .5
         self._dragging: bool | Literal['hsplit'] | Literal['vsplit'] = False
         self._focused = 2
-        self._hscroll = [0, 0, 0]
-        self._vscroll = [0, 0, 0]
 
     def __enter__(self) -> Self:
         self._stdscr = curses.initscr()
@@ -436,79 +486,62 @@ class DLMerge:
 
     @property
     def _vsplit_col(self) -> int:
-        MIN_SIZE = 1
+        _, cols = self._stdscr.getmaxyx()
         return clamp(
-            MIN_SIZE,
-            round(curses.COLS * self._vsplit),
-            curses.COLS - 1 - MIN_SIZE
+            ChangePane.MIN_WIDTH,
+            round(cols * self._vsplit),
+            cols - 1 - ChangePane.MIN_WIDTH
         )
 
     @_vsplit_col.setter
     def _vsplit_col(self, value: int) -> None:
-        self._vsplit = value / curses.COLS
+        _, cols = self._stdscr.getmaxyx()
+        self._vsplit = clamp(0, value / cols, 1)
 
     @property
     def _hsplit_row(self) -> int:
-        MIN_SIZE = 1
+        lines, _ = self._stdscr.getmaxyx()
         return clamp(
-            MIN_SIZE,
-            round(curses.LINES * self._hsplit),
-            curses.LINES - 1 - MIN_SIZE
+            ChangePane.MIN_HEIGHT,
+            round(lines * self._hsplit),
+            lines - 1 - OutputPane.MIN_HEIGHT
         )
 
     @_hsplit_row.setter
     def _hsplit_row(self, value: int) -> None:
-        self._hsplit = value / curses.LINES
-
-    def _draw_hsplit(self, ch: Optional[int | str] = None) -> None:
-        ch = normalize_ch(ch, curses.ACS_HLINE)
-        self._stdscr.hline(self._hsplit_row, 0, ch, curses.COLS)
-
-    def _draw_vsplit(self, ch: Optional[int | str] = None) -> None:
-        ch = normalize_ch(ch, curses.ACS_VLINE)
-        self._stdscr.vline(0, self._vsplit_col, ch, self._hsplit_row)
-
-    def _draw_tee(self, ch: Optional[int | str] = None) -> None:
-        ch = normalize_ch(ch, curses.ACS_BTEE)
-        self._stdscr.addch(self._hsplit_row, self._vsplit_col, ch)
+        lines, _ = self._stdscr.getmaxyx()
+        self._hsplit = clamp(0, value / lines, 1)
 
     def _draw_borders(self) -> None:
-        self._draw_hsplit()
-        self._draw_vsplit()
-        self._draw_tee()
-        self._stdscr.noutrefresh()
+        _, cols = self._stdscr.getmaxyx()
+        line_char = 0  # use default horzontal or vertical line
+        tee_char = curses.ACS_BTEE
+        self._stdscr.erase()
+        self._stdscr.vline(0, self._vsplit_col, line_char, self._hsplit_row)
+        self._stdscr.hline(self._hsplit_row, 0, line_char, self._vsplit_col)
+        self._stdscr.addch(self._hsplit_row, self._vsplit_col, tee_char)
+        self._stdscr.hline(self._hsplit_row, self._vsplit_col + 1, line_char, cols - self._vsplit_col - 1)
 
     def _move_vsplit(self, col: int) -> None:
         if col == self._vsplit_col:
             return
-        self._draw_vsplit(' ')
         self._vsplit_col = col
-        self._panes[0].colmax = self._vsplit_col - 1
-        self._panes[1].colmin = self._vsplit_col + 1
-        self._stdscr.touchline(0, self._hsplit_row)
+        self._top_half_resized()
+
+    def _top_half_resized(self) -> None:
         self._draw_borders()
-        self._panes[0].noutrefresh()
-        self._panes[1].noutrefresh()
+        self._change_panes[0].resize(*self._change_a_dim())
+        self._change_panes[1].resize(*self._change_b_dim())
 
     def _move_hsplit(self, row: int) -> None:
         if row == self._hsplit_row:
             return
-        self._draw_hsplit(' ')
-        self._draw_vsplit(' ')
         self._hsplit_row = row
-        self._panes[0].rowmax = self._hsplit_row - 1
-        self._panes[1].rowmax = self._hsplit_row - 1
-        self._panes[2].rowmin = self._hsplit_row + 1
-        self._stdscr.touchwin()
-        self._draw_borders()
-        for pane in self._panes:
-            pane.noutrefresh()
+        self._resized()
 
-    def _draw_contents(self) -> None:
-        pane_a, pane_b, pane_m = self._panes
-        pane_a.noutrefresh()
-        pane_b.noutrefresh()
-        pane_m.noutrefresh()
+    def _resized(self) -> None:
+        self._top_half_resized()
+        self._output_pane.resize(*self._output_dim())
 
     def _select_conflict(self, n: int) -> None:
         if n not in range(len(self._merge_output.decisions)):
@@ -525,25 +558,24 @@ class DLMerge:
         self._move_hsplit(new_hsplit)
         self._output_pane.scroll_to_conflict(self._selected_conflict)
 
-        self._draw_borders()
-        self._draw_contents()
+    def _change_a_dim(self) -> tuple[int, int, int, int]:
+        return self._hsplit_row, self._vsplit_col, 0, 0
+
+    def _change_b_dim(self) -> tuple[int, int, int, int]:
+        _, cols = self._stdscr.getmaxyx()
+        return self._hsplit_row, cols - self._vsplit_col - 1, 0, self._vsplit_col + 1
+
+    def _output_dim(self) -> tuple[int, int, int, int]:
+        lines, cols = self._stdscr.getmaxyx()
+        return lines - self._hsplit_row - 1, cols, self._hsplit_row + 1, 0
 
     def run(self) -> None:
         self._change_panes = [
-            ChangePane(
-                self._filenames[0],
-                0, 0, self._hsplit_row - 1, self._vsplit_col - 1
-            ),
-            ChangePane(
-                self._filenames[1],
-                0, self._vsplit_col + 1, self._hsplit_row - 1, curses.COLS - 1
-            ),
+            ChangePane(self._filenames[0], *self._change_a_dim()),
+            ChangePane(self._filenames[1], *self._change_b_dim()),
         ]
         self._output_pane = OutputPane(
-                self._filenames[2],
-                self._merge_output,
-                self._hsplit_row + 1, 0, curses.LINES - 1, curses.COLS - 1
-            )
+                self._filenames[2], self._merge_output, *self._output_dim())
 
         self._panes: list[Pane] = [
             *self._change_panes,
@@ -551,8 +583,10 @@ class DLMerge:
         ]
 
         self._select_conflict(0)
+        self._draw_borders()
 
         while True:
+            panel.update_panels()
             curses.doupdate()
             c = self._stdscr.getch()
 
@@ -572,19 +606,7 @@ class DLMerge:
                 self._panes[self._focused].scroll_horiz(2)
             elif c == curses.KEY_RESIZE:
                 curses.update_lines_cols()
-                self._stdscr.resize(curses.LINES, curses.COLS)
-                self._stdscr.erase()
-                self._stdscr.touchwin()
-                self._draw_borders()
-                self._panes[0].colmax = self._vsplit_col - 1
-                self._panes[1].colmin = self._vsplit_col + 1
-                self._panes[1].colmax = curses.COLS - 1
-                self._panes[2].colmax = curses.COLS - 1
-                self._panes[0].rowmax = self._hsplit_row - 1
-                self._panes[1].rowmax = self._hsplit_row - 1
-                self._panes[2].rowmin = self._hsplit_row + 1
-                self._panes[2].rowmax = curses.LINES - 1
-                self._draw_contents()
+                self._resized()
             elif c == curses.KEY_MOUSE:
                 _, mcol, mrow, _, bstate = curses.getmouse()
                 if bstate & curses.BUTTON1_PRESSED:
