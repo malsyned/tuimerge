@@ -263,7 +263,7 @@ class ColorPair(IntEnum):
         curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, -1)
         curses.init_pair(cls.A, curses.COLOR_CYAN, -1)
         curses.init_pair(cls.B, curses.COLOR_BLUE, -1)
-        curses.init_pair(cls.BASE, curses.COLOR_WHITE, -1)
+        curses.init_pair(cls.BASE, -1, -1)
         curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, -1)
 
     @property
@@ -321,7 +321,7 @@ class Decision:
         if text:
             for line in text:
                 window.addch(lineno, 0, prefix, color.attr | curses.A_STANDOUT)
-                addstr(window, lineno, 1, line, color.attr)
+                addstr(window, lineno, 1, line, color.attr | curses.A_BOLD)
                 lineno += 1
         else:
             window.addch(lineno, 0, prefix, color.attr | curses.A_STANDOUT)
