@@ -56,6 +56,7 @@ class Pane:
     def __init__(
         self,
         filename: str,
+        color: ColorPair,
         nlines: int,
         ncols: int,
         begin_line: int,
@@ -63,9 +64,11 @@ class Pane:
         label: Optional[str] = None
     ):
         self.filename = filename
+        self._color = color
         self._set_size_attrs(nlines, ncols, begin_line, begin_col)
         self._hscroll = 0
         self._vscroll = 0
+        self._focused = False
 
         self._win, title, gutter, content = self._create_wins()
         self._title_panel = panel.new_panel(title)
@@ -108,14 +111,19 @@ class Pane:
 
     def _draw_title(self) -> None:
         titlewin = self._title_panel.window()
-        # TODO: Focus
-        attr = curses.A_STANDOUT # if self._focus else curses.A_NORMAL
+        titlewin.bkgdset(' ', self._color.attr | curses.A_REVERSE)
         try:
             # TODO: More information in the title
-            titlewin.addstr(0, 0, self.filename, curses.A_UNDERLINE | attr)
+            titlewin.addch(0, 0, '[' if self._focused else ' ')
+            titlewin.addstr(0, 1, self.filename)
+            titlewin.addch(']' if self._focused else ' ')
             titlewin.clrtobot()
         except curses.error:
             pass
+
+    def focus(self, on: bool) -> None:
+        self._focused = on
+        self._draw_title()
 
     @property
     def width(self) -> int:
@@ -170,6 +178,7 @@ class ChangePane(Pane):
     def __init__(
         self,
         filename: str,
+        color: ColorPair,
         nlines: int,
         ncols: int,
         begin_line: int,
@@ -177,7 +186,7 @@ class ChangePane(Pane):
         label: str | None = None
     ):
         super().__init__(
-            filename, nlines, ncols, begin_line, begin_col, label)
+            filename, color, nlines, ncols, begin_line, begin_col, label)
 
     def set_change(self, orig: list[str], new: list[str]) -> None:
         with (
@@ -258,6 +267,8 @@ class OutputPane(Pane):
     def __init__(
         self,
         filename: str,
+        resolved_color: ColorPair,
+        unresolved_color: ColorPair,
         merge_output: MergeOutput,
         nlines: int,
         ncols: int,
@@ -266,8 +277,10 @@ class OutputPane(Pane):
         label: str | None = None
     ):
         self._merge_output = merge_output
+        self._resolved_color = resolved_color
+        self._unresolved_color = unresolved_color
 
-        super().__init__(filename, nlines, ncols, begin_line, begin_col, label)
+        super().__init__(filename, unresolved_color, nlines, ncols, begin_line, begin_col, label)
         self._resize_content(merge_output.height, merge_output.width)
         merge_output.draw(self._content_pad)
         self._draw()
@@ -293,6 +306,10 @@ class OutputPane(Pane):
     def resolve(self, conflict: int, resolution: Resolution) -> None:
         self._merge_output.decisions[conflict].resolution = resolution
         self._resize_content(self._merge_output.height, self._merge_output.width)
+        if any(d.resolution == Resolution.UNRESOLVED for d in self._merge_output.decisions):
+            self._color = self._unresolved_color
+        else:
+            self._color = self._resolved_color
         self._merge_output.draw(self._content_pad)
         self._draw()
 
@@ -461,7 +478,6 @@ class DLMerge:
         self._vsplit = .5
         self._hsplit = .5
         self._dragging: bool | Literal['hsplit'] | Literal['vsplit'] = False
-        self._focused = 2
 
     def __enter__(self) -> Self:
         self._stdscr = curses.initscr()
@@ -574,19 +590,25 @@ class DLMerge:
         lines, cols = self._stdscr.getmaxyx()
         return lines - self._hsplit_row - 1, cols, self._hsplit_row + 1, 0
 
+    def _set_focus(self, n: int) -> None:
+        self._focused = n
+        for i, pane in enumerate(self._panes):
+            pane.focus(i == n)
+
     def run(self) -> None:
         self._change_panes = [
-            ChangePane(self._filenames[0], *self._change_a_dim()),
-            ChangePane(self._filenames[1], *self._change_b_dim()),
+            ChangePane(self._filenames[0], ColorPair.A, *self._change_a_dim()),
+            ChangePane(self._filenames[1], ColorPair.B, *self._change_b_dim()),
         ]
         self._output_pane = OutputPane(
-                self._filenames[2], self._merge_output, *self._output_dim())
+                self._filenames[2], ColorPair.BASE, ColorPair.UNRESOLVED, self._merge_output, *self._output_dim())
 
         self._panes: list[Pane] = [
             *self._change_panes,
             self._output_pane,
         ]
 
+        self._set_focus(2)
         self._select_conflict(0)
         self._draw_borders()
 
@@ -598,9 +620,9 @@ class DLMerge:
             if c == ord('q'):
                 return
             elif c == ord('\t'):
-                self._focused = (self._focused + 1) % 3
+                self._set_focus((self._focused + 1) % 3)
             elif c == curses.KEY_BTAB:
-                self._focused = (self._focused - 1) % 3
+                self._set_focus((self._focused - 1) % 3)
             elif c == curses.KEY_UP:
                 self._panes[self._focused].scroll_vert(-1)
             elif c == curses.KEY_DOWN:
