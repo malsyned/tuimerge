@@ -325,7 +325,7 @@ class Decision:
                 lineno += 1
         else:
             window.addch(lineno, 0, prefix, color.attr | curses.A_STANDOUT)
-            window.addch(lineno, 1, curses.ACS_RARROW, color.attr | curses.A_STANDOUT)
+            window.addch(lineno, 1, curses.ACS_HLINE, color.attr | curses.A_STANDOUT)
             lineno += 1
         return lineno
 
