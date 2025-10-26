@@ -87,12 +87,16 @@ class Pane:
         content = win.derwin(self._nlines - 1, self._ncols - 1, 1, 1)
         return win, title, gutter, content
 
+    @property
+    def preferred_height(self) -> int:
+        return self._content_height + 1  # for the title bar
+
     #FIXME: scrolling past the right or bottom edge causes repeating lines/chars
     def scroll_vert(self, n: int) -> None:
         self.scroll_vert_to(self._vscroll + n)
 
     def scroll_vert_to(self, n: int) -> None:
-        self._vscroll = clamp(0, n, self.height - 1)
+        self._vscroll = clamp(0, n, self._content_height - 1)
         self._draw()
 
     def scroll_horiz(self, n: int) -> None:
@@ -119,7 +123,7 @@ class Pane:
         return cols
 
     @property
-    def height(self) -> int:
+    def _content_height(self) -> int:
         lines, _ = self._content_pad.getmaxyx()
         return lines
 
@@ -553,8 +557,9 @@ class DLMerge:
         self._change_panes[0].set_change(current_decision.conflict.base, current_decision.conflict.a)
         self._change_panes[1].set_change(current_decision.conflict.base, current_decision.conflict.b)
 
-        max_change_height = max(pane.height for pane in self._change_panes)
-        new_hsplit = min(max_change_height, curses.LINES // 2)
+        lines, _ = self._stdscr.getmaxyx()
+        max_change_height = max(pane.preferred_height for pane in self._change_panes)
+        new_hsplit = min(max_change_height, lines // 2)
         self._move_hsplit(new_hsplit)
         self._output_pane.scroll_to_conflict(self._selected_conflict)
 
