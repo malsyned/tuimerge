@@ -58,7 +58,7 @@ class Pane:
         rowmax: int, colmax: int,
         label: Optional[str] = None
     ):
-        self.filenmae = filename
+        self.filename = filename
         self.rowmin = rowmin; self.rowmax = rowmax
         self.colmin = colmin; self.colmax = colmax
         self.hscroll = 0
