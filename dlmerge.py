@@ -783,11 +783,17 @@ class DLMerge:
                 if bstate & curses.BUTTON4_PRESSED:
                     if t := self._pane_under_cell(mrow, mcol):
                         _, pane = t
-                        pane.scroll_vert(-1)
+                        if bstate & curses.BUTTON_SHIFT:
+                            pane.scroll_horiz(-2)
+                        else:
+                            pane.scroll_vert(-1)
                 if bstate & curses.BUTTON5_PRESSED:
                     if t := self._pane_under_cell(mrow, mcol):
                         _, pane = t
-                        pane.scroll_vert(1)
+                        if bstate & curses.BUTTON_SHIFT:
+                            pane.scroll_horiz(2)
+                        else:
+                            pane.scroll_vert(1)
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
