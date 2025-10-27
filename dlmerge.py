@@ -11,7 +11,7 @@ import re
 import subprocess
 from tempfile import NamedTemporaryFile
 from types import TracebackType
-from typing import Any, Callable, Generator, Literal, NoReturn, Optional, Self
+from typing import Callable, Generator, Literal, NoReturn, Optional, Self
 
 # display 3 windows:
 #     top left = new A hunk with diff from original
@@ -293,7 +293,7 @@ class MergeOutput:
                     yield line
 
 
-def noerror(f: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+def noerror[**P, T](f: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> None:
     try:
         f(*args, **kwargs)
     except curses.error:
@@ -525,7 +525,7 @@ class Decision:
             case Resolution.USE_BASE:
                 yield from self.conflict.base
 
-def terminal_supports_xterm_mouse():
+def terminal_supports_xterm_mouse() -> bool:
     xm = curses.tigetstr('XM')
     if xm and b'1006' in xm:
         return True
@@ -535,7 +535,7 @@ def terminal_supports_xterm_mouse():
     return False
 
 
-def term_enable_mouse_drag(enable: bool = True):
+def term_enable_mouse_drag(enable: bool = True) -> None:
     if not terminal_supports_xterm_mouse():
         return
     c = 'h' if enable else 'l'
