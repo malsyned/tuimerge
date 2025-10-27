@@ -44,6 +44,10 @@ from typing import Any, Callable, Generator, Literal, NoReturn, Optional, Self
 # (something) Save, quit, and open editor
 # Additional navigation with Home/End/PgUp/PgDn(space)
 
+# TODO:
+# Reconcile navigation and conflict selection
+# Make work with xterm-mono
+
 # Wishlist: Menus
 
 def clamp[T: float](minimum: T, value: T, maximum: T) -> T:
@@ -109,7 +113,10 @@ class Pane:
 
     def _draw_titlebar(self) -> None:
         titlewin = self._title_panel.window()
-        titlewin.bkgdset(' ', self._color.attr | curses.A_REVERSE)
+        bg_attr = self._color.attr | curses.A_REVERSE
+        if self._focused:
+            bg_attr |= curses.A_BOLD
+        titlewin.bkgdset(' ', bg_attr)
         noerror(titlewin.addch, 0, 0, '[' if self._focused else ' ')
         self._draw_title()
         noerror(titlewin.addch, ']' if self._focused else ' ')
