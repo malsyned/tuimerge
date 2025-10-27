@@ -706,18 +706,16 @@ class DLMerge:
                 self._resized()
             elif c == curses.KEY_MOUSE:
                 _, mcol, mrow, _, bstate = curses.getmouse()
+
                 if bstate & curses.BUTTON1_PRESSED:
                     if mrow == self._hsplit_row:
                         self._dragging = 'hsplit'
                     elif mrow < self._hsplit_row and mcol == self._vsplit_col:
                         self._dragging = 'vsplit'
-
                 if self._dragging == 'hsplit':
                     self._move_hsplit(mrow)
                 if self._dragging == 'vsplit':
                     self._move_vsplit(mcol)
-                self._stdscr.noutrefresh()
-
                 if bstate & curses.BUTTON1_RELEASED:
                     self._dragging = False
             elif c == ord('p'):
