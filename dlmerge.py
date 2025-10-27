@@ -227,7 +227,7 @@ class ChangePane(Pane):
         noerror(titlewin.addch, ' ')
         name = self._file.label or self._file.filename
         if name:
-            noerror(titlewin.addstr, name, curses.A_UNDERLINE)
+            noerror(titlewin.addstr, name)
             if self._desc:
                 noerror(titlewin.addch, ' ')
         if self._desc:
@@ -351,11 +351,11 @@ class OutputPane(Pane):
         if name and self._outfile:
             noerror(titlewin.addstr, 'Base:')
             noerror(titlewin.addch, ' ')
-            noerror(titlewin.addstr, name, curses.A_UNDERLINE)
+            noerror(titlewin.addstr, name)
             noerror(titlewin.addstr, '; ')
             noerror(titlewin.addstr, 'Output:')
             noerror(titlewin.addch, ' ')
-            noerror(titlewin.addstr, self._outfile, curses.A_UNDERLINE)
+            noerror(titlewin.addstr, self._outfile)
             noerror(titlewin.addch, ' ')
         else:
             merge = name or self._outfile
