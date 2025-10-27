@@ -764,13 +764,8 @@ class DLMerge:
             elif c == ord('u'):
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             elif c == ord('w'):
-                outfile = self._outfile or self._files[2].filename
-                if not outfile:
-                    raise ValueError('No output filename provided')
-                with open(outfile, 'w') as f:
-                    #FIXME: Deal properly with files that don't have newlines
-                    f.writelines(f'{line}\n' for line in self._merge_output.lines())
-                    return
+                self._save()
+                return
 
             elif c == curses.KEY_RESIZE:
                 curses.update_lines_cols()
@@ -811,6 +806,14 @@ class DLMerge:
                             pane.scroll_horiz(2)
                         else:
                             pane.scroll_vert(1)
+
+    def _save(self):
+        outfile = self._outfile or self._files[2].filename
+        if not outfile:
+            raise ValueError('No output filename provided')
+        with open(outfile, 'w') as f:
+            #FIXME: Deal properly with files that don't have newlines
+            f.writelines(f'{line}\n' for line in self._merge_output.lines())
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
