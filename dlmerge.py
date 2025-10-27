@@ -411,8 +411,6 @@ class Decision:
         prefix: str,
         lineno: int
     ) -> int:
-        if curses.has_colors():
-            prefix = ' '  # rely on color, it's nicer-looking
         if text:
             for line in text:
                 noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | curses.A_STANDOUT)
@@ -429,10 +427,12 @@ class Decision:
         return lineno
 
     def _draw_a(self, pane: Pane, lineno: int) -> int:
-        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, 'A', lineno)
+        prefix = ' ' if curses.has_colors() else 'A'
+        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, lineno)
 
     def _draw_b(self, window: Pane, lineno: int) -> int:
-        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, 'B', lineno)
+        prefix = ' ' if curses.has_colors() else 'A'
+        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, lineno)
 
     def _draw_base(self, window: Pane, color: ColorPair, p: str, lineno: int) -> int:
         return self._draw_with_gutter(window, self.conflict.base, color, p, lineno)
