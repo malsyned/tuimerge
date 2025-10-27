@@ -557,14 +557,9 @@ class DLMerge:
         self._hsplit = clamp(0, value / lines, 1)
 
     def _draw_borders(self) -> None:
-        _, cols = self._stdscr.getmaxyx()
         line_char = 0  # use default horzontal or vertical line
-        tee_char = curses.ACS_BTEE
         self._stdscr.erase()
         self._stdscr.vline(0, self._vsplit_col, line_char, self._hsplit_row)
-        self._stdscr.hline(self._hsplit_row, 0, line_char, self._vsplit_col)
-        self._stdscr.addch(self._hsplit_row, self._vsplit_col, tee_char)
-        self._stdscr.hline(self._hsplit_row, self._vsplit_col + 1, line_char, cols - self._vsplit_col - 1)
 
     def _move_vsplit(self, col: int) -> None:
         if col == self._vsplit_col:
@@ -612,7 +607,7 @@ class DLMerge:
 
     def _output_dim(self) -> tuple[int, int, int, int]:
         lines, cols = self._stdscr.getmaxyx()
-        return lines - self._hsplit_row - 1, cols, self._hsplit_row + 1, 0
+        return lines - self._hsplit_row, cols, self._hsplit_row, 0
 
     def _set_focus(self, n: int) -> None:
         self._focused = n
