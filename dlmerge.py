@@ -391,10 +391,11 @@ class ColorPair(IntEnum):
 
     @classmethod
     def init(cls) -> None:
+        bright = 8 if curses.COLORS > 8 else 0
         curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, -1)
         curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, -1)
         curses.init_pair(cls.A, curses.COLOR_CYAN, -1)
-        curses.init_pair(cls.B, curses.COLOR_BLUE, -1)
+        curses.init_pair(cls.B, curses.COLOR_BLUE + bright, -1)
         curses.init_pair(cls.BASE, -1, -1)
         curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, -1)
 
