@@ -702,13 +702,13 @@ class DLMerge:
                 self._set_focus((self._focused + 1) % 3)
             elif c == curses.KEY_BTAB:
                 self._set_focus((self._focused - 1) % 3)
-            elif c == curses.KEY_UP:
+            elif c in (curses.KEY_UP, ord('k')):
                 self._panes[self._focused].scroll_vert(-1)
-            elif c == curses.KEY_DOWN:
+            elif c in (curses.KEY_DOWN, ord('j')):
                 self._panes[self._focused].scroll_vert(1)
-            elif c == curses.KEY_LEFT:
+            elif c in (curses.KEY_LEFT, ord('h')):
                 self._panes[self._focused].scroll_horiz(-2)
-            elif c == curses.KEY_RIGHT:
+            elif c in (curses.KEY_RIGHT, ord('l')):
                 self._panes[self._focused].scroll_horiz(2)
             elif c == curses.KEY_RESIZE:
                 curses.update_lines_cols()
