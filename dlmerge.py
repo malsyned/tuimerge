@@ -204,6 +204,8 @@ class ChangePane(Pane):
         contents = diff_result.stdout.splitlines()[3:]  # skip headers
         height = len(contents)
         width = max(map(len, contents))
+        self._hscroll = 0
+        self._vscroll = 0
         self._content_pad.erase()
         self._resize_content(height, width)
         for i, line in enumerate(contents):
