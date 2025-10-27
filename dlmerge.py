@@ -576,7 +576,6 @@ class DLMerge:
         curses.cbreak()
         curses.noecho()
         noerror(curses.curs_set, 0)
-        self._stdscr.leaveok(True)
         self._stdscr.keypad(True)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
@@ -691,6 +690,12 @@ class DLMerge:
                 return i, pane
         return None
 
+    def _banish_cursor(self) -> None:
+        # On terminals where the cursor can't be hidden, move it someplace
+        # out-of-the-way.
+        rows, _ = self._stdscr.getmaxyx()
+        self._stdscr.move(rows - 1, 0)
+
     def run(self) -> None:
         self._change_panes = [
             ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
@@ -711,8 +716,9 @@ class DLMerge:
         while True:
             panel.update_panels()
             curses.doupdate()
-            c = self._stdscr.getch()
+            self._banish_cursor()
 
+            c = self._stdscr.getch()
             if c == ord('q'):
                 return
             elif c == ord('\t'):
