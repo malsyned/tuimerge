@@ -223,15 +223,15 @@ class ChangePane(Pane):
 
     def _draw_title(self) -> None:
         titlewin = self._title_panel.window()
-        titlewin.addstr(f'{self._key}:')
-        titlewin.addch(' ')
+        noerror(titlewin.addstr, f'{self._key}:')
+        noerror(titlewin.addch, ' ')
         name = self._file.label or self._file.filename
         if name:
-            titlewin.addstr(name, curses.A_UNDERLINE)
+            noerror(titlewin.addstr, name, curses.A_UNDERLINE)
             if self._desc:
-                titlewin.addch(' ')
+                noerror(titlewin.addch, ' ')
         if self._desc:
-            titlewin.addstr(f'({self._desc})', curses.A_ITALIC)
+            noerror(titlewin.addstr, f'({self._desc})', curses.A_ITALIC)
 
 
 class MergeOutput:
@@ -349,20 +349,20 @@ class OutputPane(Pane):
 
         name = self._file.filename or self._file.label
         if name and self._outfile:
-            titlewin.addstr('Base:')
-            titlewin.addch(' ')
-            titlewin.addstr(name, curses.A_UNDERLINE)
-            titlewin.addstr('; ')
-            titlewin.addstr('Output:')
-            titlewin.addch(' ')
-            titlewin.addstr(self._outfile, curses.A_UNDERLINE)
-            titlewin.addch(' ')
+            noerror(titlewin.addstr, 'Base:')
+            noerror(titlewin.addch, ' ')
+            noerror(titlewin.addstr, name, curses.A_UNDERLINE)
+            noerror(titlewin.addstr, '; ')
+            noerror(titlewin.addstr, 'Output:')
+            noerror(titlewin.addch, ' ')
+            noerror(titlewin.addstr, self._outfile, curses.A_UNDERLINE)
+            noerror(titlewin.addch, ' ')
         else:
             merge = name or self._outfile
             if merge:
-                titlewin.addstr(merge)
-                titlewin.addch(' ')
-        titlewin.addstr('(Merge)', curses.A_ITALIC)
+                noerror(titlewin.addstr, merge)
+                noerror(titlewin.addch, ' ')
+        noerror(titlewin.addstr, '(Merge)', curses.A_ITALIC)
 
     def _draw_titlebar(self) -> None:
         super()._draw_titlebar()
@@ -370,6 +370,7 @@ class OutputPane(Pane):
         _, cols = titlewin.getmaxyx()
         status = ' RESOLVED' if self._fully_resolved() else ' UNRESOLVED'
         noerror(titlewin.addstr, 0, cols - 1 - len(status), status)
+
 
 class Resolution(Enum):
     UNRESOLVED = auto()
@@ -903,7 +904,6 @@ def main() -> None:
     oldfile = Revision(args.OLDFILE, next(label_iter, None))
     yourfile = Revision(args.YOURFILE, next(label_iter, None))
     outfile = args.output
-
 
     diff3_result = subprocess.run(
         'git merge-file -p --zdiff3 --'.split(' ')
