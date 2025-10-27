@@ -421,8 +421,6 @@ class Decision:
             pane.content.attron(color.attr | curses.A_BOLD)
             pane.content.hline(lineno, 0, 0, pane.width)
             pane.content.attroff(color.attr | curses.A_BOLD)
-            # for x in range(pane.width):
-            #     noerror(pane.content.addch, lineno, x, curses.ACS_HLINE, color.attr)
             lineno += 1
         return lineno
 
