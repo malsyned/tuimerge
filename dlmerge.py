@@ -710,31 +710,6 @@ class DLMerge:
                 self._panes[self._focused].scroll_horiz(-2)
             elif c in (curses.KEY_RIGHT, ord('l')):
                 self._panes[self._focused].scroll_horiz(2)
-            elif c == curses.KEY_RESIZE:
-                curses.update_lines_cols()
-                self._resized()
-            elif c == curses.KEY_MOUSE:
-                _, mcol, mrow, _, bstate = curses.getmouse()
-
-                if bstate & curses.BUTTON1_PRESSED:
-                    if mrow == self._hsplit_row:
-                        self._dragging = 'hsplit'
-                    elif mrow < self._hsplit_row and mcol == self._vsplit_col:
-                        self._dragging = 'vsplit'
-                if self._dragging == 'hsplit':
-                    self._move_hsplit(mrow)
-                if self._dragging == 'vsplit':
-                    self._move_vsplit(mcol)
-                if bstate & curses.BUTTON1_RELEASED:
-                    self._dragging = False
-
-                if bstate & curses.BUTTON4_PRESSED:
-                    if pane := self._pane_under_cell(mrow, mcol):
-                        pane.scroll_vert(-1)
-                if bstate & curses.BUTTON5_PRESSED:
-                    if pane := self._pane_under_cell(mrow, mcol):
-                        pane.scroll_vert(1)
-
             elif c == ord('p'):
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n'):
@@ -759,6 +734,31 @@ class DLMerge:
                     #FIXME: Deal properly with files that don't have newlines
                     f.writelines(f'{line}\n' for line in self._merge_output.lines())
                     return
+
+            elif c == curses.KEY_RESIZE:
+                curses.update_lines_cols()
+                self._resized()
+            elif c == curses.KEY_MOUSE:
+                _, mcol, mrow, _, bstate = curses.getmouse()
+
+                if bstate & curses.BUTTON1_PRESSED:
+                    if mrow == self._hsplit_row:
+                        self._dragging = 'hsplit'
+                    elif mrow < self._hsplit_row and mcol == self._vsplit_col:
+                        self._dragging = 'vsplit'
+                if self._dragging == 'hsplit':
+                    self._move_hsplit(mrow)
+                if self._dragging == 'vsplit':
+                    self._move_vsplit(mcol)
+                if bstate & curses.BUTTON1_RELEASED:
+                    self._dragging = False
+
+                if bstate & curses.BUTTON4_PRESSED:
+                    if pane := self._pane_under_cell(mrow, mcol):
+                        pane.scroll_vert(-1)
+                if bstate & curses.BUTTON5_PRESSED:
+                    if pane := self._pane_under_cell(mrow, mcol):
+                        pane.scroll_vert(1)
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
