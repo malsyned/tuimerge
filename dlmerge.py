@@ -10,7 +10,7 @@ import re
 import subprocess
 from tempfile import NamedTemporaryFile
 from types import TracebackType
-from typing import Generator, Literal, NoReturn, Optional, Self
+from typing import Any, Callable, Generator, Literal, NoReturn, Optional, Self
 
 # display 3 windows:
 #     top left = new A hunk with diff from original
@@ -112,18 +112,23 @@ class Pane:
     def _draw_title(self) -> None:
         titlewin = self._title_panel.window()
         titlewin.bkgdset(' ', self._color.attr | curses.A_REVERSE)
-        try:
-            # TODO: More information in the title
-            titlewin.addch(0, 0, '[' if self._focused else ' ')
-            titlewin.addstr(0, 1, self.filename)
-            titlewin.addch(']' if self._focused else ' ')
-            titlewin.clrtobot()
-        except curses.error:
-            pass
+        # TODO: More information in the title
+        noerror(titlewin.addch, 0, 0, '[' if self._focused else ' ')
+        noerror(titlewin.addstr, 0, 1, self.filename)
+        noerror(titlewin.addch, ']' if self._focused else ' ')
+        titlewin.clrtobot()
 
     def focus(self, on: bool) -> None:
         self._focused = on
         self._draw_title()
+
+    @property
+    def gutter(self) -> curses.window:
+        return self._gutter_pad
+
+    @property
+    def content(self) -> curses.window:
+        return self._content_pad
 
     @property
     def width(self) -> int:
@@ -137,6 +142,7 @@ class Pane:
 
     def _resize_content(self, nlines: int, ncols: int) -> None:
         self._content_pad.resize(nlines, ncols)
+        self._gutter_pad.resize(nlines, 1)
 
     def resize(self, nlines: int, ncols: int, begin_line: int, begin_col: int) -> None:
         self._set_size_attrs(nlines, ncols, begin_line, begin_col)
@@ -162,16 +168,6 @@ def pad_to_win(pad: curses.window, win: curses.window, sminline: int, smincol: i
     win.erase()
     if copylines and copycols:
         pad.overwrite(win, sminline, smincol, 0, 0, copylines - 1, copycols - 1)
-
-
-def addstr(window: curses.window, row: int, col: int, s: str, attr: Optional[int] = None) -> None:
-        try:
-            if attr is None:
-                window.addstr(row, col, s)
-            else:
-                window.addstr(row, col, s, attr)
-        except curses.error:
-            pass  # can happen spuriously when writing to bottom right corner
 
 
 class ChangePane(Pane):
@@ -212,11 +208,11 @@ class ChangePane(Pane):
         self._resize_content(height, width)
         for i, line in enumerate(contents):
             if line[0] == '+':
-                addstr(self._content_pad, i, 0, line, ColorPair.DIFF_ADDED.attr)
+                noerror(self._content_pad.addstr, i, 0, line, ColorPair.DIFF_ADDED.attr)
             elif line[0] == '-':
-                addstr(self._content_pad, i, 0, line, ColorPair.DIFF_REMOVED.attr)
+                noerror(self._content_pad.addstr, i, 0, line, ColorPair.DIFF_REMOVED.attr)
             else:
-                addstr(self._content_pad, i, 0, line)
+                noerror(self._content_pad.addstr, i, 0, line)
         self._draw()
 
 
@@ -242,17 +238,18 @@ class MergeOutput:
         )
         return 1 + max(chunk_widths, default=0)
 
-    def draw(self, w: curses.window) -> None:
-        w.erase()
+    def draw(self, pane: Pane) -> None:
+        pane.gutter.erase()
+        pane.content.erase()
         lineno = 0
         #FIXME: Deal properly with ^M and other control characters
         for e in self.chunks:
             if isinstance(e, Decision):
-                lineno = e.draw(w, lineno)
+                lineno = e.draw(pane, lineno)
             else:
                 for line in e:
-                    w.addch(lineno, 0, ' ')
-                    addstr(w, lineno, 1, line)
+                    noerror(pane.gutter.addch, lineno, 0, ' ')
+                    noerror(pane.content.addstr, lineno, 0, line)
                     lineno += 1
 
     def lines(self) -> Generator[str]:
@@ -262,6 +259,14 @@ class MergeOutput:
             else:
                 for line in e:
                     yield line
+
+
+def noerror(f: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+    try:
+        f(*args, **kwargs)
+    except curses.error:
+        pass
+
 
 class OutputPane(Pane):
     def __init__(
@@ -282,7 +287,7 @@ class OutputPane(Pane):
 
         super().__init__(filename, unresolved_color, nlines, ncols, begin_line, begin_col, label)
         self._resize_content(merge_output.height, merge_output.width)
-        merge_output.draw(self._content_pad)
+        merge_output.draw(self)
         self._draw()
 
     def scroll_to_conflict(self, conflict: int) -> None:
@@ -303,15 +308,28 @@ class OutputPane(Pane):
             else:
                 lineno += len(e)
 
+    def _fully_resolved(self) -> bool:
+        return not any(
+            d.resolution == Resolution.UNRESOLVED
+            for d in self._merge_output.decisions
+        )
+
     def resolve(self, conflict: int, resolution: Resolution) -> None:
         self._merge_output.decisions[conflict].resolution = resolution
         self._resize_content(self._merge_output.height, self._merge_output.width)
-        if any(d.resolution == Resolution.UNRESOLVED for d in self._merge_output.decisions):
-            self._color = self._unresolved_color
-        else:
+        if self._fully_resolved():
             self._color = self._resolved_color
-        self._merge_output.draw(self._content_pad)
+        else:
+            self._color = self._unresolved_color
+        self._merge_output.draw(self)
         self._draw()
+
+    def _draw_title(self) -> None:
+        super()._draw_title()
+        titlewin = self._title_panel.window()
+        _, cols = titlewin.getmaxyx()
+        status = ' RESOLVED' if self._fully_resolved() else ' UNRESOLVED'
+        noerror(titlewin.addstr, 0, cols - 1 - len(status), status)
 
 class Resolution(Enum):
     UNRESOLVED = auto()
@@ -383,35 +401,41 @@ class Decision:
                     self._text_width(self.conflict.b)
                 )
 
-    def _draw_with_prefix(
+    def _draw_with_gutter(
         self,
-        window: curses.window,
+        pane: Pane,
         text: list[str],
         color: ColorPair,
         prefix: str,
         lineno: int
     ) -> int:
+        if curses.has_colors():
+            prefix = ' '  # rely on color, it's nicer-looking
         if text:
             for line in text:
-                window.addch(lineno, 0, prefix, color.attr | curses.A_STANDOUT)
-                addstr(window, lineno, 1, line, color.attr | curses.A_BOLD)
+                noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | curses.A_STANDOUT)
+                noerror(pane.content.addstr, lineno, 0, line, color.attr | curses.A_BOLD)
                 lineno += 1
         else:
-            window.addch(lineno, 0, prefix, color.attr | curses.A_STANDOUT)
-            window.addch(lineno, 1, curses.ACS_HLINE, color.attr | curses.A_STANDOUT)
+            noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | curses.A_STANDOUT)
+            pane.content.attron(color.attr | curses.A_BOLD)
+            pane.content.hline(lineno, 0, 0, pane.width)
+            pane.content.attroff(color.attr | curses.A_BOLD)
+            # for x in range(pane.width):
+            #     noerror(pane.content.addch, lineno, x, curses.ACS_HLINE, color.attr)
             lineno += 1
         return lineno
 
-    def _draw_a(self, window: curses.window, lineno: int) -> int:
-        return self._draw_with_prefix(window, self.conflict.a, ColorPair.A, 'A', lineno)
+    def _draw_a(self, pane: Pane, lineno: int) -> int:
+        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, 'A', lineno)
 
-    def _draw_b(self, window: curses.window, lineno: int) -> int:
-        return self._draw_with_prefix(window, self.conflict.b, ColorPair.B, 'B', lineno)
+    def _draw_b(self, window: Pane, lineno: int) -> int:
+        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, 'B', lineno)
 
-    def _draw_base(self, window: curses.window, color: ColorPair, p: str, lineno: int) -> int:
-        return self._draw_with_prefix(window, self.conflict.base, color, p, lineno)
+    def _draw_base(self, window: Pane, color: ColorPair, p: str, lineno: int) -> int:
+        return self._draw_with_gutter(window, self.conflict.base, color, p, lineno)
 
-    def draw(self, window: curses.window, lineno: int) -> int:
+    def draw(self, window: Pane, lineno: int) -> int:
         match self.resolution:
             case Resolution.UNRESOLVED:
                 lineno = self._draw_base(window, ColorPair.UNRESOLVED, '!', lineno)
