@@ -405,6 +405,8 @@ class ColorPair(IntEnum):
 
     @classmethod
     def init(cls) -> None:
+        if not curses.has_colors():
+            return
         bright = 8 if curses.COLORS > 8 else 0
         curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, -1)
         curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, -1)
@@ -415,6 +417,8 @@ class ColorPair(IntEnum):
 
     @property
     def attr(self) -> int:
+        if not curses.has_colors():
+            return 0
         return curses.color_pair(self)
 
 
@@ -483,7 +487,7 @@ class Decision:
         return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, lineno)
 
     def _draw_b(self, window: Pane, lineno: int) -> int:
-        prefix = ' ' if curses.has_colors() else 'A'
+        prefix = ' ' if curses.has_colors() else 'B'
         return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, lineno)
 
     def _draw_base(self, window: Pane, color: ColorPair, p: str, lineno: int) -> int:
@@ -567,11 +571,11 @@ class DLMerge:
     def __enter__(self) -> Self:
         self._stdscr = curses.initscr()
         curses.start_color()
-        curses.use_default_colors()
+        noerror(curses.use_default_colors)
         ColorPair.init()
         curses.cbreak()
         curses.noecho()
-        curses.curs_set(0)
+        noerror(curses.curs_set, 0)
         self._stdscr.leaveok(True)
         self._stdscr.keypad(True)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
