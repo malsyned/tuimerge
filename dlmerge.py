@@ -213,12 +213,16 @@ class ChangePane(Pane):
         self._content_pad.erase()
         self._resize_content(height, width)
         for i, line in enumerate(contents):
-            if line[0] == '+':
-                noerror(self._content_pad.addstr, i, 0, line, ColorPair.DIFF_ADDED.attr)
-            elif line[0] == '-':
-                noerror(self._content_pad.addstr, i, 0, line, ColorPair.DIFF_REMOVED.attr)
+            prefix = line[0]
+            data = line[1:]
+            if prefix == '+':
+                attr = ColorPair.DIFF_ADDED.attr
+            elif prefix == '-':
+                attr = ColorPair.DIFF_REMOVED.attr
             else:
-                noerror(self._content_pad.addstr, i, 0, line)
+                attr = curses.A_NORMAL
+            noerror(self._gutter_pad.addch, i, 0, prefix, attr)
+            noerror(self._content_pad.addstr, i, 0, data, attr)
         self._draw()
 
     def _draw_title(self) -> None:
