@@ -674,10 +674,10 @@ class DLMerge:
         for i, pane in enumerate(self._panes):
             pane.focus(i == n)
 
-    def _pane_under_cell(self, row: int, col: int) -> Pane | None:
-        for pane in self._panes:
+    def _pane_under_cell(self, row: int, col: int) -> tuple[int, Pane] | None:
+        for i, pane in enumerate(self._panes):
             if pane.enclose(row, col):
-                return pane
+                return i, pane
         return None
 
     def run(self) -> None:
@@ -758,8 +758,15 @@ class DLMerge:
                 if bstate & curses.BUTTON1_PRESSED:
                     if mrow == self._hsplit_row:
                         self._dragging = 'hsplit'
+                        self._set_focus(2)
                     elif mrow < self._hsplit_row and mcol == self._vsplit_col:
                         self._dragging = 'vsplit'
+                    else:
+                        t = self._pane_under_cell(mrow, mcol)
+                        if t:
+                            i, _ = t
+                            self._set_focus(i)
+
                 if self._dragging == 'hsplit':
                     self._move_hsplit_to(mrow)
                 if self._dragging == 'vsplit':
@@ -768,10 +775,12 @@ class DLMerge:
                     self._dragging = False
 
                 if bstate & curses.BUTTON4_PRESSED:
-                    if pane := self._pane_under_cell(mrow, mcol):
+                    if t := self._pane_under_cell(mrow, mcol):
+                        _, pane = t
                         pane.scroll_vert(-1)
                 if bstate & curses.BUTTON5_PRESSED:
-                    if pane := self._pane_under_cell(mrow, mcol):
+                    if t := self._pane_under_cell(mrow, mcol):
+                        _, pane = t
                         pane.scroll_vert(1)
 
 
