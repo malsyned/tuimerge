@@ -122,6 +122,9 @@ class Pane:
         self._focused = on
         self._draw_titlebar()
 
+    def enclose(self, row: int, col: int) -> bool:
+        return self._win.enclose(row, col)
+
     @property
     def gutter(self) -> curses.window:
         return self._gutter_pad
@@ -665,6 +668,12 @@ class DLMerge:
         for i, pane in enumerate(self._panes):
             pane.focus(i == n)
 
+    def _pane_under_cell(self, row: int, col: int) -> Pane | None:
+        for pane in self._panes:
+            if pane.enclose(row, col):
+                return pane
+        return None
+
     def run(self) -> None:
         self._change_panes = [
             ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
@@ -718,6 +727,14 @@ class DLMerge:
                     self._move_vsplit(mcol)
                 if bstate & curses.BUTTON1_RELEASED:
                     self._dragging = False
+
+                if bstate & curses.BUTTON4_PRESSED:
+                    if pane := self._pane_under_cell(mrow, mcol):
+                        pane.scroll_vert(-1)
+                if bstate & curses.BUTTON5_PRESSED:
+                    if pane := self._pane_under_cell(mrow, mcol):
+                        pane.scroll_vert(1)
+
             elif c == ord('p'):
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n'):
