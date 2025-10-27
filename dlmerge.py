@@ -90,14 +90,14 @@ class Pane:
 
     @property
     def preferred_height(self) -> int:
-        return self._content_height + 1  # for the title bar
+        return self.content_height + 1  # for the title bar
 
     #FIXME: scrolling past the right or bottom edge causes repeating lines/chars
     def scroll_vert(self, n: int) -> None:
         self.scroll_vert_to(self._vscroll + n)
 
     def scroll_vert_to(self, n: int) -> None:
-        self._vscroll = clamp(0, n, self._content_height - 1)
+        self._vscroll = clamp(0, n, self.content_height - 1)
         self._draw()
 
     def scroll_horiz(self, n: int) -> None:
@@ -139,7 +139,7 @@ class Pane:
         return cols
 
     @property
-    def _content_height(self) -> int:
+    def content_height(self) -> int:
         lines, _ = self._content_pad.getmaxyx()
         return lines
 
@@ -724,6 +724,12 @@ class DLMerge:
                 self._move_vsplit(-1)
             elif c in (curses.KEY_SRIGHT, ord('L')):
                 self._move_vsplit(1)
+            elif c in (curses.KEY_HOME, ord('<')):
+                self._panes[self._focused].scroll_vert_to(0)
+            elif c in (curses.KEY_END, ord('>')):
+                pane = self._panes[self._focused]
+                lines, _, _, _ = self._output_dim()
+                pane.scroll_vert_to(pane.content_height - 1 - lines)
             elif c == ord('p'):
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n'):
