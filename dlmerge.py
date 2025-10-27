@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import abstractmethod
 import argparse
 import curses
 import curses.panel as panel
@@ -55,15 +56,12 @@ class Pane:
 
     def __init__(
         self,
-        filename: str,
         color: ColorPair,
         nlines: int,
         ncols: int,
         begin_line: int,
         begin_col: int,
-        label: Optional[str] = None
     ):
-        self.filename = filename
         self._color = color
         self._set_size_attrs(nlines, ncols, begin_line, begin_col)
         self._hscroll = 0
@@ -109,18 +107,20 @@ class Pane:
         self._hscroll = clamp(0, n, self.width - 1)
         self._draw()
 
-    def _draw_title(self) -> None:
+    def _draw_titlebar(self) -> None:
         titlewin = self._title_panel.window()
         titlewin.bkgdset(' ', self._color.attr | curses.A_REVERSE)
-        # TODO: More information in the title
         noerror(titlewin.addch, 0, 0, '[' if self._focused else ' ')
-        noerror(titlewin.addstr, 0, 1, self.filename)
+        self._draw_title()
         noerror(titlewin.addch, ']' if self._focused else ' ')
         titlewin.clrtobot()
 
+    @abstractmethod
+    def _draw_title(self) -> None: ...
+
     def focus(self, on: bool) -> None:
         self._focused = on
-        self._draw_title()
+        self._draw_titlebar()
 
     @property
     def gutter(self) -> curses.window:
@@ -155,7 +155,7 @@ class Pane:
         self._draw()
 
     def _draw(self) -> None:
-        self._draw_title()
+        self._draw_titlebar()
         pad_to_win(self._gutter_pad, self._gutter_panel.window(), self._vscroll, 0)
         pad_to_win(self._content_pad, self._content_panel.window(), self._vscroll, self._hscroll)
 
@@ -173,16 +173,20 @@ def pad_to_win(pad: curses.window, win: curses.window, sminline: int, smincol: i
 class ChangePane(Pane):
     def __init__(
         self,
-        filename: str,
+        file: Revision,
+        key: str,
+        desc: str,
         color: ColorPair,
         nlines: int,
         ncols: int,
         begin_line: int,
         begin_col: int,
-        label: str | None = None
     ):
+        self._file = file
+        self._key = key
+        self._desc = desc
         super().__init__(
-            filename, color, nlines, ncols, begin_line, begin_col, label)
+            color, nlines, ncols, begin_line, begin_col)
 
     def set_change(self, orig: list[str], new: list[str]) -> None:
         with (
@@ -216,6 +220,18 @@ class ChangePane(Pane):
             else:
                 noerror(self._content_pad.addstr, i, 0, line)
         self._draw()
+
+    def _draw_title(self) -> None:
+        titlewin = self._title_panel.window()
+        titlewin.addstr(f'{self._key}:')
+        titlewin.addch(' ')
+        name = self._file.label or self._file.filename
+        if name:
+            titlewin.addstr(name, curses.A_UNDERLINE)
+            if self._desc:
+                titlewin.addch(' ')
+        if self._desc:
+            titlewin.addstr(f'({self._desc})', curses.A_ITALIC)
 
 
 class MergeOutput:
@@ -273,7 +289,8 @@ def noerror(f: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
 class OutputPane(Pane):
     def __init__(
         self,
-        filename: str,
+        file: Revision,
+        outfile: str | None,
         resolved_color: ColorPair,
         unresolved_color: ColorPair,
         merge_output: MergeOutput,
@@ -281,13 +298,14 @@ class OutputPane(Pane):
         ncols: int,
         begin_line: int,
         begin_col: int,
-        label: str | None = None
     ):
+        self._file = file
+        self._outfile = outfile
         self._merge_output = merge_output
         self._resolved_color = resolved_color
         self._unresolved_color = unresolved_color
 
-        super().__init__(filename, unresolved_color, nlines, ncols, begin_line, begin_col, label)
+        super().__init__(unresolved_color, nlines, ncols, begin_line, begin_col)
         self._resize_content(merge_output.height, merge_output.width)
         merge_output.draw(self)
         self._draw()
@@ -327,7 +345,27 @@ class OutputPane(Pane):
         self._draw()
 
     def _draw_title(self) -> None:
-        super()._draw_title()
+        titlewin = self._title_panel.window()
+
+        name = self._file.filename or self._file.label
+        if name and self._outfile:
+            titlewin.addstr('Base:')
+            titlewin.addch(' ')
+            titlewin.addstr(name, curses.A_UNDERLINE)
+            titlewin.addstr('; ')
+            titlewin.addstr('Output:')
+            titlewin.addch(' ')
+            titlewin.addstr(self._outfile, curses.A_UNDERLINE)
+            titlewin.addch(' ')
+        else:
+            merge = name or self._outfile
+            if merge:
+                titlewin.addstr(merge)
+                titlewin.addch(' ')
+        titlewin.addstr('(Merge)', curses.A_ITALIC)
+
+    def _draw_titlebar(self) -> None:
+        super()._draw_titlebar()
         titlewin = self._title_panel.window()
         _, cols = titlewin.getmaxyx()
         status = ' RESOLVED' if self._fully_resolved() else ' UNRESOLVED'
@@ -488,15 +526,22 @@ def term_enable_mouse_drag(enable: bool = True):
     print(f'\033[?1002{c}', flush=True)
 
 
+@dataclass
+class Revision:
+    filename: Optional[str]
+    label: Optional[str]
+
 class DLMerge:
     def __init__(
         self,
-        file_a: str,
-        file_b: str,
-        file_base: str,
-        merge: list[list[str] | Conflict]
+        file_a: Revision,
+        file_b: Revision,
+        file_base: Revision,
+        merge: list[list[str] | Conflict],
+        outfile: Optional[str] = None
     ):
-        self._filenames = [file_a, file_b, file_base]
+        self._outfile = outfile
+        self._files = [file_a, file_b, file_base]
         self._merge = merge
         self._merge_output = MergeOutput(merge)
         self._vsplit = .5
@@ -616,11 +661,11 @@ class DLMerge:
 
     def run(self) -> None:
         self._change_panes = [
-            ChangePane(self._filenames[0], ColorPair.A, *self._change_a_dim()),
-            ChangePane(self._filenames[1], ColorPair.B, *self._change_b_dim()),
+            ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
+            ChangePane(self._files[1], 'B', 'Incoming', ColorPair.B, *self._change_b_dim()),
         ]
         self._output_pane = OutputPane(
-                self._filenames[2], ColorPair.BASE, ColorPair.UNRESOLVED, self._merge_output, *self._output_dim())
+                self._files[2], self._outfile, ColorPair.BASE, ColorPair.UNRESOLVED, self._merge_output, *self._output_dim())
 
         self._panes: list[Pane] = [
             *self._change_panes,
@@ -686,7 +731,10 @@ class DLMerge:
             elif c == ord('u'):
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             elif c == ord('w'):
-                with open(self._filenames[2], 'w') as f:
+                outfile = self._outfile or self._files[2].filename
+                if not outfile:
+                    raise ValueError('No output filename provided')
+                with open(outfile, 'w') as f:
                     #FIXME: Deal properly with files that don't have newlines
                     f.writelines(f'{line}\n' for line in self._merge_output.lines())
                     return
@@ -841,20 +889,32 @@ class MergeParser:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument('--label', '-L', action='append', default=[])
+    parser.add_argument('--output', '-o')
     parser.add_argument('MYFILE')
     parser.add_argument('OLDFILE')
     parser.add_argument('YOURFILE')
     args = parser.parse_args()
 
+    labels: list[str] = args.label
+    label_iter = iter(labels)
+    label_args = [arg for label in labels for arg in ['-L', label]]
+    myfile = Revision(args.MYFILE, next(label_iter, None))
+    oldfile = Revision(args.OLDFILE, next(label_iter, None))
+    yourfile = Revision(args.YOURFILE, next(label_iter, None))
+    outfile = args.output
+
+
     diff3_result = subprocess.run(
         'git merge-file -p --zdiff3 --'.split(' ')
+        + label_args
         + [args.MYFILE, args.OLDFILE, args.YOURFILE],
         stdout=subprocess.PIPE,
         encoding='utf-8',
     )
 
     merge = MergeParser(diff3_result.stdout.splitlines()).parse()
-    with DLMerge(args.MYFILE, args.YOURFILE, args.OLDFILE, merge) as dlmerge:
+    with DLMerge(myfile, yourfile, oldfile, merge, outfile=outfile) as dlmerge:
         dlmerge.run()
 
     exit()
