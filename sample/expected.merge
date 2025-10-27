@@ -482,12 +482,12 @@ int somearray[] = {
     2,
     3,
 <<<<<<< sample/main.1.c
-    4,
-    5,
-||||||| sample/main.c
-=======
     6,
     7,
+||||||| sample/main.c
+=======
+    4,
+    5,
 >>>>>>> sample/main.2.c
 };
 
