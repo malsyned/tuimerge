@@ -615,7 +615,10 @@ class DLMerge:
         self._stdscr.erase()
         self._stdscr.vline(0, self._vsplit_col, line_char, self._hsplit_row)
 
-    def _move_vsplit(self, col: int) -> None:
+    def _move_vsplit(self, n: int) -> None:
+        self._move_vsplit_to(self._vsplit_col + n)
+
+    def _move_vsplit_to(self, col: int) -> None:
         if col == self._vsplit_col:
             return
         self._vsplit_col = col
@@ -626,7 +629,10 @@ class DLMerge:
         self._change_panes[0].resize(*self._change_a_dim())
         self._change_panes[1].resize(*self._change_b_dim())
 
-    def _move_hsplit(self, row: int) -> None:
+    def _move_hsplit(self, n: int) -> None:
+        self._move_hsplit_to(self._hsplit_row + n)
+
+    def _move_hsplit_to(self, row: int) -> None:
         if row == self._hsplit_row:
             return
         self._hsplit_row = row
@@ -649,7 +655,7 @@ class DLMerge:
         lines, _ = self._stdscr.getmaxyx()
         max_change_height = max(pane.preferred_height for pane in self._change_panes)
         new_hsplit = min(max_change_height, lines // 2)
-        self._move_hsplit(new_hsplit)
+        self._move_hsplit_to(new_hsplit)
         self._output_pane.scroll_to_conflict(self._selected_conflict)
 
     def _change_a_dim(self) -> tuple[int, int, int, int]:
@@ -710,6 +716,14 @@ class DLMerge:
                 self._panes[self._focused].scroll_horiz(-2)
             elif c in (curses.KEY_RIGHT, ord('l')):
                 self._panes[self._focused].scroll_horiz(2)
+            elif c in (curses.KEY_SR, ord('K')):
+                self._move_hsplit(-1)
+            elif c in (curses.KEY_SF, ord('J')):
+                self._move_hsplit(1)
+            elif c in (curses.KEY_SLEFT, ord('H')):
+                self._move_vsplit(-1)
+            elif c in (curses.KEY_SRIGHT, ord('L')):
+                self._move_vsplit(1)
             elif c == ord('p'):
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n'):
@@ -747,9 +761,9 @@ class DLMerge:
                     elif mrow < self._hsplit_row and mcol == self._vsplit_col:
                         self._dragging = 'vsplit'
                 if self._dragging == 'hsplit':
-                    self._move_hsplit(mrow)
+                    self._move_hsplit_to(mrow)
                 if self._dragging == 'vsplit':
-                    self._move_vsplit(mcol)
+                    self._move_vsplit_to(mcol)
                 if bstate & curses.BUTTON1_RELEASED:
                     self._dragging = False
 
