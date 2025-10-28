@@ -233,7 +233,7 @@ class ChangePane(Pane):
             else:
                 attr = curses.A_NORMAL
             noerror(self._gutter_pad.addch, i, 0, prefix, attr)
-            noerror(self._content_pad.addstr, i, 0, data, attr)
+            noerror(self._content_pad.addstr, i, 0, data, attr | curses.A_BOLD)
         self._draw()
 
     def _draw_title(self) -> None:
