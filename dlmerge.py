@@ -890,13 +890,13 @@ class DLMerge:
                 self._panes[self._focused].scroll_horiz(-2)
             elif c in (curses.KEY_RIGHT, ord('l')):
                 self._panes[self._focused].scroll_horiz(2)
-            elif c in (curses.KEY_SR, ord('K')):
+            elif c in (curses.KEY_SR, ord('K'), ord('-')):
                 self._move_hsplit(-1)
-            elif c in (curses.KEY_SF, ord('J')):
+            elif c in (curses.KEY_SF, ord('J'), ord('='), ord('+')):
                 self._move_hsplit(1)
-            elif c in (curses.KEY_SLEFT, ord('H')):
+            elif c in (curses.KEY_SLEFT, ord('H'), ord('[')):
                 self._move_vsplit(-1)
-            elif c in (curses.KEY_SRIGHT, ord('L')):
+            elif c in (curses.KEY_SRIGHT, ord('L'), ord(']')):
                 self._move_vsplit(1)
             elif c in (curses.KEY_HOME, ord('<')):
                 self._panes[self._focused].scroll_vert_to(0)
