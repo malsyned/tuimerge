@@ -424,7 +424,7 @@ class OutputPane(Pane):
         self._draw_merge_output()
         self._draw()
 
-    def _draw_merge_output(self):
+    def _draw_merge_output(self) -> None:
         self._merge_output.draw(self, self._selected_conflict)
 
     def _draw_title(self) -> None:
