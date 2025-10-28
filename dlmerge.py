@@ -807,7 +807,7 @@ class DLMerge:
                         else:
                             pane.scroll_vert(1)
 
-    def _save(self):
+    def _save(self) -> None:
         outfile = self._outfile or self._files[2].filename
         if not outfile:
             raise ValueError('No output filename provided')
