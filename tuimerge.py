@@ -1290,6 +1290,7 @@ def main() -> None:
     parser.add_argument('--label', '-L', action='append', default=[],
                         help='can be repeated up to 3 times')
     parser.add_argument('--output', '-o')
+    parser.add_argument('--view-only', action='store_true')
     parser.add_argument('FILE1',
                         help='MYFILE in 3-way merge, BASE in 2-way merge')
     parser.add_argument('FILE2',
@@ -1316,6 +1317,14 @@ def main() -> None:
         assert(myfile.filename and oldfile.filename and yourfile.filename)
         diff3 = do_diff3(
             myfile.filename, oldfile.filename, yourfile.filename, label_args)
+        if args.view_only:
+            with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
+                viewfile.writelines(f'{line}\n' for line in diff3)
+                viewfile.close()
+                # TODO: Use color where applicable
+                # TODO: Consider -F -X, unset POSIXLY_CORRECT
+                do_pager(viewfile.name, pause_curses=False)
+            exit()
         merge = MergeParser(diff3).parse()
     else:
         myfile = file1
@@ -1333,6 +1342,14 @@ def main() -> None:
         mine_label = myfile.label or myfile.filename
         yours_label = yourfile.label or yourfile.filename
         assert(mine_label and yours_label)
+        if args.view_only:
+            with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
+                viewfile.writelines(f'{line}\n' for line in diff2)
+                viewfile.close()
+                # TODO: Use color where applicable
+                # TODO: Consider -F -X, unset POSIXLY_CORRECT
+                do_pager(viewfile.name, pause_curses=False)
+            exit()
         merge = merge_from_diff(diff2, mine_label, mine, yours_label, yours)
 
     tuimerge = TUIMerge(myfile, yourfile, oldfile, merge, outfile=outfile)
