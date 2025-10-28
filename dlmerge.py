@@ -226,10 +226,11 @@ class ChangePane(Pane):
                 and not any(line.startswith(p) for p in['---', '+++'])
             )
         ]
-        height = len(contents)
-        width = max(map(len, contents))
+        height = len(contents) or 1
+        width = max(map(len, contents), default=1)
         self._hscroll = 0
         self._vscroll = 0
+        self._gutter_pad.erase()
         self._content_pad.erase()
         self._resize_content(height, width)
         for i, line in enumerate(contents):
@@ -1219,32 +1220,107 @@ class MergeParser:
         return label, body
 
 
+def merge_from_diff(
+    diff: list[str],
+    mine_label: str, mine: list[str],
+    yours_label: str, yours: list[str]
+) -> list[list[str] | Conflict]:
+    return list(_merge_from_diff(diff, mine_label, mine, yours_label, yours))
+
+
+def _merge_from_diff(
+    diff: list[str],
+    mine_label: str, mine: list[str],
+    yours_label: str, yours: list[str]
+) -> Generator[list[str] | Conflict]:
+    HUNK_RE = re.compile(r'^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@')
+    next_mine_lineno = 0
+    for line in diff:
+        if (m := HUNK_RE.match(line)):
+            mine_lineno_raw, mine_count, yours_lineno_raw, yours_count = [
+                int(n) if n else 1 for n in m.group(1, 2, 3, 4)
+            ]
+            mine_lineno = mine_lineno_raw - int(bool(mine_count))
+            yours_lineno = yours_lineno_raw - int(bool(yours_count))
+            prelude_lines = mine[next_mine_lineno:mine_lineno]
+            if prelude_lines:
+                yield prelude_lines
+            mine_lines = mine[mine_lineno:mine_lineno + mine_count]
+            yours_lines = yours[yours_lineno:yours_lineno + yours_count]
+            yield Conflict("!!!BUG!!!", [], mine_label, mine_lines, yours_label, yours_lines)
+            next_mine_lineno = mine_lineno + mine_count
+    rest = mine[next_mine_lineno:]
+    if rest:
+        yield rest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--label', '-L', action='append', default=[])
+    parser.add_argument('--label', '-L', action='append', default=[],
+                        help='can be repeated up to 3 times')
     parser.add_argument('--output', '-o')
-    parser.add_argument('MYFILE')
-    parser.add_argument('OLDFILE')
-    parser.add_argument('YOURFILE')
+    parser.add_argument('FILE1',
+                        help='MYFILE in 3-way merge, BASE in 2-way merge')
+    parser.add_argument('FILE2',
+                        help='BASE in 3-way merge, YOURFILE in 2-way merge')
+    parser.add_argument('FILE3', nargs='?',
+                        help='YOURFILE in 3-way merge')
     args = parser.parse_args()
 
     labels: list[str] = args.label
     label_iter = iter(labels)
-    label_args = [arg for label in labels for arg in ['-L', label]]
-    myfile = Revision(args.MYFILE, next(label_iter, None))
-    oldfile = Revision(args.OLDFILE, next(label_iter, None))
-    yourfile = Revision(args.YOURFILE, next(label_iter, None))
+
+    file1 = Revision(args.FILE1, next(label_iter, None))
+    file2 = Revision(args.FILE2, next(label_iter, None))
+    file3 = Revision(args.FILE3, next(label_iter, None)) if args.FILE3 else None
     outfile = args.output
 
-    diff3_result = subprocess.run(
-        'git merge-file -p --zdiff3 --'.split(' ')
-        + label_args
-        + [args.MYFILE, args.OLDFILE, args.YOURFILE],
-        stdout=subprocess.PIPE,
-        encoding=sys.getdefaultencoding(),
-    )
+    if file3:
+        myfile = file1
+        oldfile = file2
+        yourfile = file3
+        label_args = [arg for label in labels for arg in ['-L', label]]
 
-    merge = MergeParser(diff3_result.stdout.splitlines()).parse()
+        # Promise the type system I know what I'm doing
+        assert(myfile.filename and oldfile.filename and yourfile.filename)
+        diff3_result = subprocess.run(
+            'git merge-file -p --zdiff3 --'.split(' ')
+            + label_args
+            + [myfile.filename, oldfile.filename, yourfile.filename],
+            stdout=subprocess.PIPE,
+            encoding=sys.getdefaultencoding(),
+        )
+
+        merge = MergeParser(diff3_result.stdout.splitlines()).parse()
+    else:
+        myfile = file1
+        yourfile = file2
+        oldfile = myfile
+        label_args = [arg for label in labels for arg in ['--label', label]]
+
+        assert(myfile.filename and yourfile.filename)
+        with (open(myfile.filename) as mf, open(yourfile.filename) as yf):
+            mine = mf.read().splitlines()
+            yours = yf.read().splitlines()
+
+        diff_result = subprocess.run(
+            'diff --text -U0'.split(' ')
+            + label_args
+            + [myfile.filename, yourfile.filename],
+            stdout=subprocess.PIPE,
+            encoding=sys.getdefaultencoding()
+        )
+
+        mine_label = myfile.label or myfile.filename
+        yours_label = yourfile.label or yourfile.filename
+        assert(mine_label and yours_label)
+
+        merge = merge_from_diff(
+            diff_result.stdout.splitlines(),
+            mine_label, mine,
+            yours_label, yours
+        )
+
     with DLMerge(myfile, yourfile, oldfile, merge, outfile=outfile) as dlmerge:
         dlmerge.run()
 
