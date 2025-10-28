@@ -9,6 +9,7 @@ from enum import Enum, IntEnum, auto
 import os
 import re
 import subprocess
+import sys
 from tempfile import NamedTemporaryFile
 from types import MappingProxyType, TracebackType
 from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, Self, Sequence
@@ -214,7 +215,7 @@ class ChangePane(Pane):
                 f'diff --text --unified={len(orig) + len(new)}'.split(' ')
                 + [tmporig.name, tmpnew.name],
                 stdout=subprocess.PIPE,
-                encoding='utf-8'
+                encoding=sys.getdefaultencoding()
             )
         contents = [
             line for line in diff_result.stdout.splitlines()
@@ -812,7 +813,7 @@ class DLMerge:
                 subprocess.run(
                     editor.split(' ')
                     + [f'+{len(prelude) + 1}', editor_file.name],
-                    encoding='utf-8',
+                    encoding=sys.getdefaultencoding(),
                     check=True
                 )
             except subprocess.CalledProcessError:
@@ -1152,7 +1153,7 @@ def main() -> None:
         + label_args
         + [args.MYFILE, args.OLDFILE, args.YOURFILE],
         stdout=subprocess.PIPE,
-        encoding='utf-8',
+        encoding=sys.getdefaultencoding(),
     )
 
     merge = MergeParser(diff3_result.stdout.splitlines()).parse()
