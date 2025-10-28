@@ -1028,37 +1028,44 @@ class TUIMerge:
                     stdout=diff_file,
                     encoding=sys.getdefaultencoding()
                 )
-                curses.def_prog_mode()
-                curses.endwin()
             except subprocess.CalledProcessError:
                 # TODO: error dialog
                 pass
 
             try:
-                ## work around some common pager quirks ##
-                pager_env = os.environ.copy()
-                # -R: process ANSI color escapes
-                # -c: start small files on top line of screen, not bottom line
-                less_opts = (
-                    re.sub(r'-?[FX]\$?', '', pager_env.get('LESS', ''))
-                    + '$Rc'
-                )
-                pager_env['LESS'] = less_opts
-                # force GNU more to pause at EOF
-                pager_env['POSIXLY_CORRECT'] = '1'
-
-                #TODO: if diff is empty, show error dialog instead of pager
-                subprocess.run(
-                    [pager(), diff_file.name],
-                    encoding=sys.getdefaultencoding(),
-                    check=True,
-                    env=pager_env
-                )
+                do_pager(diff_file.name)
             except subprocess.CalledProcessError:
                 #TODO: error dialog
                 pass
-            finally:
-                curses.reset_prog_mode()
+
+
+def do_pager(file: str, pause_curses: bool = True) -> None:
+    ## work around some common pager quirks ##
+    pager_env = os.environ.copy()
+    # -R: process ANSI color escapes
+    # -c: start small files on top line of screen, not bottom line
+    less_opts = (
+        re.sub(r'-?[FX]\$?', '', pager_env.get('LESS', ''))
+        + '$Rc'
+    )
+    pager_env['LESS'] = less_opts
+    # force GNU more to pause at EOF
+    pager_env['POSIXLY_CORRECT'] = '1'
+
+    if pause_curses:
+        curses.def_prog_mode()
+        curses.endwin()
+    try:
+        #TODO: if diff is empty, show error dialog instead of pager
+        subprocess.run(
+            [pager(), file],
+            encoding=sys.getdefaultencoding(),
+            check=True,
+            env=pager_env
+        )
+    finally:
+        if pause_curses:
+            curses.reset_prog_mode()
 
 
 def pager() -> str:
@@ -1254,6 +1261,30 @@ def _merge_from_diff(
         yield rest
 
 
+def do_diff3(
+    myfile: str, oldfile: str, yourfile: str, labels: list[str] = []
+) -> list[str]:
+    diff3_result = subprocess.run(
+        'git merge-file -p --zdiff3 --'.split(' ')
+        + labels
+        + [myfile, oldfile, yourfile],
+        stdout=subprocess.PIPE,
+        encoding=sys.getdefaultencoding(),
+    )
+    return diff3_result.stdout.splitlines()
+
+
+def do_diff2(myfile: str, yourfile: str, labels: list[str] = []) -> list[str]:
+        diff_result = subprocess.run(
+            'diff --text -U0'.split(' ')
+            + labels
+            + [myfile, yourfile],
+            stdout=subprocess.PIPE,
+            encoding=sys.getdefaultencoding()
+        )
+        return diff_result.stdout.splitlines()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--label', '-L', action='append', default=[],
@@ -1283,15 +1314,9 @@ def main() -> None:
 
         # Promise the type system I know what I'm doing
         assert(myfile.filename and oldfile.filename and yourfile.filename)
-        diff3_result = subprocess.run(
-            'git merge-file -p --zdiff3 --'.split(' ')
-            + label_args
-            + [myfile.filename, oldfile.filename, yourfile.filename],
-            stdout=subprocess.PIPE,
-            encoding=sys.getdefaultencoding(),
-        )
-
-        merge = MergeParser(diff3_result.stdout.splitlines()).parse()
+        diff3 = do_diff3(
+            myfile.filename, oldfile.filename, yourfile.filename, label_args)
+        merge = MergeParser(diff3).parse()
     else:
         myfile = file1
         yourfile = file2
@@ -1303,23 +1328,12 @@ def main() -> None:
             mine = mf.read().splitlines()
             yours = yf.read().splitlines()
 
-        diff_result = subprocess.run(
-            'diff --text -U0'.split(' ')
-            + label_args
-            + [myfile.filename, yourfile.filename],
-            stdout=subprocess.PIPE,
-            encoding=sys.getdefaultencoding()
-        )
+        diff2 = do_diff2(myfile.filename, yourfile.filename, label_args)
 
         mine_label = myfile.label or myfile.filename
         yours_label = yourfile.label or yourfile.filename
         assert(mine_label and yours_label)
-
-        merge = merge_from_diff(
-            diff_result.stdout.splitlines(),
-            mine_label, mine,
-            yours_label, yours
-        )
+        merge = merge_from_diff(diff2, mine_label, mine, yours_label, yours)
 
     tuimerge = TUIMerge(myfile, yourfile, oldfile, merge, outfile=outfile)
     with  tuimerge:
