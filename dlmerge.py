@@ -296,14 +296,15 @@ class MergeOutput:
         )
         return 1 + max(chunk_widths, default=0)
 
-    def draw(self, pane: Pane) -> None:
+    def draw(self, pane: Pane, selected_conflict: int = 0) -> None:
         pane.gutter.erase()
         pane.content.erase()
         lineno = 0
+        selected_chunk = self.decision_chunk_indices[selected_conflict]
         #FIXME: Deal properly with ^M and other control characters
-        for e in self.edited_chunks():
+        for i, e in enumerate(self.edited_chunks()):
             if isinstance(e, Decision):
-                lineno = e.draw(pane, lineno)
+                lineno = e.draw(pane, lineno, i == selected_chunk)
             else:
                 for line in e:
                     noerror(pane.gutter.addch, lineno, 0, ' ')
@@ -350,9 +351,15 @@ class OutputPane(Pane):
         merge_output.draw(self)
         self._draw()
 
-    def scroll_to_conflict(self, conflict: int) -> None:
+    def _select_conflict(self, conflict: int) -> None:
+        self._selected_conflict = conflict
+        self._draw_merge_output()
+
+    def scroll_to_conflict(self, conflict: int, select: bool = True) -> None:
         lineno = 0
         cur_conflict = 0
+        if select:
+            self._select_conflict(conflict)
         for e in self._merge_output.chunks:
             if isinstance(e, Decision):
                 if conflict == cur_conflict:
@@ -406,8 +413,11 @@ class OutputPane(Pane):
             self._color = self._resolved_color
         else:
             self._color = self._unresolved_color
-        self._merge_output.draw(self)
+        self._draw_merge_output()
         self._draw()
+
+    def _draw_merge_output(self):
+        self._merge_output.draw(self, self._selected_conflict)
 
     def _draw_title(self) -> None:
         titlewin = self._title_panel.window()
@@ -540,54 +550,63 @@ class Decision:
         text: list[str],
         color: ColorPair,
         prefix: str,
-        lineno: int
+        selected: bool,
+        lineno: int,
+        end_chunk: bool = True,
     ) -> int:
+        gutter_attr = curses.A_STANDOUT if selected else 0
         if text:
-            for line in text:
-                noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | curses.A_STANDOUT)
+            for i, line in enumerate(text):
+                if i == 0:
+                    this_prefix = ord(prefix)
+                elif i == len(text) - 1 and end_chunk:
+                    this_prefix = curses.ACS_LLCORNER
+                else:
+                    this_prefix = curses.ACS_VLINE
+                noerror(pane.gutter.addch, lineno, 0, this_prefix, color.attr | gutter_attr)
                 noerror(pane.content.addstr, lineno, 0, line, color.attr | curses.A_BOLD)
                 lineno += 1
         else:
-            noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | curses.A_STANDOUT)
+            noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | gutter_attr)
             pane.content.attron(color.attr | curses.A_BOLD)
             pane.content.hline(lineno, 0, 0, pane.width)
             pane.content.attroff(color.attr | curses.A_BOLD)
             lineno += 1
         return lineno
 
-    def _draw_a(self, pane: Pane, lineno: int) -> int:
-        prefix = ' ' if curses.has_colors() else 'A'
-        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, lineno)
+    def _draw_a(self, pane: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
+        prefix = 'A'
+        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, selected, lineno, end_chunk=end_chunk)
 
-    def _draw_b(self, window: Pane, lineno: int) -> int:
-        prefix = ' ' if curses.has_colors() else 'B'
-        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, lineno)
+    def _draw_b(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
+        prefix = 'B'
+        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, selected, lineno, end_chunk=end_chunk)
 
-    def _draw_base(self, window: Pane, color: ColorPair, p: str, lineno: int) -> int:
-        return self._draw_with_gutter(window, self.conflict.base, color, p, lineno)
+    def _draw_base(self, window: Pane, color: ColorPair, p: str, selected: bool, lineno: int, always_prefix: bool = False) -> int:
+        return self._draw_with_gutter(window, self.conflict.base, color, p, selected, lineno)
 
-    def _draw_edit(self, window: Pane, lineno: int) -> int:
-        prefix = ' ' if curses.has_colors() else 'E'
-        return self._draw_with_gutter(window, self.edit, ColorPair.EDITED, prefix, lineno)
+    def _draw_edit(self, window: Pane, selected: bool, lineno: int) -> int:
+        prefix = 'E'
+        return self._draw_with_gutter(window, self.edit, ColorPair.EDITED, prefix, selected, lineno)
 
-    def draw(self, window: Pane, lineno: int) -> int:
+    def draw(self, window: Pane, lineno: int, selected: bool) -> int:
         match self.resolution:
             case Resolution.UNRESOLVED:
-                lineno = self._draw_base(window, ColorPair.UNRESOLVED, '!', lineno)
+                lineno = self._draw_base(window, ColorPair.UNRESOLVED, '?', selected, lineno, always_prefix=True)
             case Resolution.USE_A:
-                lineno = self._draw_a(window, lineno)
+                lineno = self._draw_a(window, selected, lineno)
             case Resolution.USE_B:
-                lineno = self._draw_b(window, lineno)
+                lineno = self._draw_b(window, selected, lineno)
             case Resolution.USE_A_FIRST:
-                lineno = self._draw_a(window, lineno)
-                lineno = self._draw_b(window, lineno)
+                lineno = self._draw_a(window, selected, lineno, end_chunk=False)
+                lineno = self._draw_b(window, selected, lineno, start_chunk=False)
             case Resolution.USE_B_FIRST:
-                lineno = self._draw_b(window, lineno)
-                lineno = self._draw_a(window, lineno)
+                lineno = self._draw_b(window, selected, lineno, end_chunk=False)
+                lineno = self._draw_a(window, selected, lineno, start_chunk=False)
             case Resolution.USE_BASE:
-                lineno = self._draw_base(window, ColorPair.BASE, ' ', lineno)
+                lineno = self._draw_base(window, ColorPair.BASE, ' ', selected, lineno)
             case Resolution.EDITED:
-                lineno = self._draw_edit(window, lineno)
+                lineno = self._draw_edit(window, selected, lineno)
         return lineno
 
     def lines(self) -> Generator[str]:
