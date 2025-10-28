@@ -940,7 +940,7 @@ class TUIMerge:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             elif c == ord('e'):
                 self._edit_selected_conflict()
-            elif c == ord('v'):
+            elif c in (ord('d'), ord('v')):
                 self._view_diff()
             elif c == ord('w'):
                 self._save()
