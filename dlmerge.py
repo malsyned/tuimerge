@@ -642,8 +642,9 @@ class Decision:
     def conflict_lines(self) -> Generator[str]:
         yield f'<<<<<<< {self.conflict.a_label}'
         yield from self.conflict.a
-        yield f'||||||| {self.conflict.base_label}'
-        yield from self.conflict.base
+        if self.conflict.base:
+            yield f'||||||| {self.conflict.base_label}'
+            yield from self.conflict.base
         yield f'======='
         yield from self.conflict.b
         yield f'>>>>>>> {self.conflict.b_label}'
@@ -1179,6 +1180,7 @@ class MergeParser:
         return body
 
     def _parse_conflict(self) -> Conflict:
+        # TODO: Treat missing bases as empty
         a_label, a = self._parse_a()
         base_label, base = self._parse_base()
         b_label, b = self._parse_b()
