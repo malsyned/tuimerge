@@ -47,7 +47,6 @@ from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, S
 
 # TODO:
 # Reconcile navigation and conflict selection
-# Make work with xterm-mono
 
 # Wishlist: Menus
 
