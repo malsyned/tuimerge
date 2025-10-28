@@ -4,14 +4,14 @@ from abc import abstractmethod
 import argparse
 import curses
 import curses.panel as panel
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, IntEnum, auto
 import os
 import re
 import subprocess
 from tempfile import NamedTemporaryFile
-from types import TracebackType
-from typing import Callable, Generator, Literal, NoReturn, Optional, Self
+from types import MappingProxyType, TracebackType
+from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, Self, Sequence
 
 # display 3 windows:
 #     top left = new A hunk with diff from original
@@ -42,7 +42,8 @@ from typing import Callable, Generator, Literal, NoReturn, Optional, Self
 # ([/]) or (drag border) resize left/right split
 # (something) to toggle A/B split horiz/vert
 # (something) Save, quit, and open editor
-# Additional navigation with Home/End/PgUp/PgDn(space)
+# Additional navigation with Home/End/PgUp/PgDn
+# (space) select next visible or page down
 
 # TODO:
 # Reconcile navigation and conflict selection
@@ -251,13 +252,38 @@ class ChangePane(Pane):
 class MergeOutput:
     def __init__(self, merge: list[list[str] | Conflict]) -> None:
         self.chunks = [Decision(c) if isinstance(c, Conflict) else c for c in merge]
-        self.decisions = [c for c in self.chunks if isinstance(c, Decision)]
+        self.decision_indices: Sequence[int] = [i for (i, c) in enumerate(self.chunks) if isinstance(c, Decision)]
+        self.decision_chunk_indices = MappingProxyType({i: v for i, v in enumerate(self.decision_indices)})
+        self.edited_text_chunks: list[None | list[str]] = [None] * len(self.chunks)
+
+    def decisions(self) -> Generator[Decision]:
+        return (c for c in self.chunks if isinstance(c, Decision))
+
+    def get_decision(self, n: int) -> Decision:
+        if n < 0 or n >= len(self.decision_indices):
+            raise IndexError(f'Decision index out of range: {n}')
+        chunk = self.chunks[self.decision_indices[n]]
+        assert(isinstance(chunk, Decision))
+        return chunk
+
+    def edited_chunks(self) -> Generator[list[str] | Decision]:
+        for chunk, edit in zip(self.chunks, self.edited_text_chunks):
+            if edit is not None:
+                yield edit
+            else:
+                yield chunk
+
+    def edited_chunk(self, n: int) -> list[str] | Decision:
+        edit = self.edited_text_chunks[n]
+        if edit is not None:
+            return edit
+        return self.chunks[n]
 
     @property
     def height(self) -> int:
         return sum(
             e.linecount if isinstance(e, Decision) else len(e)
-            for e in self.chunks
+            for e in self.edited_chunks()
         )
 
     @property
@@ -266,7 +292,7 @@ class MergeOutput:
             e.width
             if isinstance(e, Decision)
             else max((len(line) for line in e), default=0)
-            for e in self.chunks
+            for e in self.edited_chunks()
         )
         return 1 + max(chunk_widths, default=0)
 
@@ -275,7 +301,7 @@ class MergeOutput:
         pane.content.erase()
         lineno = 0
         #FIXME: Deal properly with ^M and other control characters
-        for e in self.chunks:
+        for e in self.edited_chunks():
             if isinstance(e, Decision):
                 lineno = e.draw(pane, lineno)
             else:
@@ -285,7 +311,7 @@ class MergeOutput:
                     lineno += 1
 
     def lines(self) -> Generator[str]:
-        for e in self.chunks:
+        for e in self.edited_chunks():
             if isinstance(e, Decision):
                 yield from e.lines()
             else:
@@ -345,11 +371,36 @@ class OutputPane(Pane):
     def _fully_resolved(self) -> bool:
         return not any(
             d.resolution == Resolution.UNRESOLVED
-            for d in self._merge_output.decisions
+            for d in self._merge_output.decisions()
         )
 
-    def resolve(self, conflict: int, resolution: Resolution) -> None:
-        self._merge_output.decisions[conflict].resolution = resolution
+    def resolve(self, conflict: int, resolution: Resolution, edit: Optional[Edit] = None) -> None:
+        #TODO: If already resolved as edited, confirm before discarding edit
+        decision_chunk_index = self._merge_output.decision_chunk_indices[conflict]
+        decision = self._merge_output.get_decision(conflict)
+        assert(isinstance(decision, Decision))
+        decision.resolution = resolution
+        if resolution == Resolution.EDITED:
+            assert(edit is not None)
+            if decision_chunk_index > 0:
+                self._merge_output.edited_text_chunks[decision_chunk_index - 1] = edit.prelude
+            else:
+                assert(not edit.prelude)
+            if decision_chunk_index < len(self._merge_output.chunks) - 1:
+                self._merge_output.edited_text_chunks[decision_chunk_index + 1] = edit.epilogue
+            else:
+                assert(not edit.epilogue)
+            decision.edit = edit.text
+        else:
+            assert(edit is None)
+            try:
+                self._merge_output.edited_text_chunks[decision_chunk_index - 1] = None
+            except IndexError:
+                pass
+            try:
+                self._merge_output.edited_text_chunks[decision_chunk_index + 1] = None
+            except IndexError:
+                pass
         self._resize_content(self._merge_output.height, self._merge_output.width)
         if self._fully_resolved():
             self._color = self._resolved_color
@@ -393,6 +444,7 @@ class Resolution(Enum):
     USE_A_FIRST = auto()
     USE_B_FIRST = auto()
     USE_BASE = auto()
+    EDITED = auto()
 
 
 class ColorPair(IntEnum):
@@ -402,6 +454,7 @@ class ColorPair(IntEnum):
     B = auto()
     BASE = auto()
     UNRESOLVED = auto()
+    EDITED = auto()
 
     @classmethod
     def init(cls) -> None:
@@ -414,6 +467,7 @@ class ColorPair(IntEnum):
         curses.init_pair(cls.B, curses.COLOR_BLUE + bright, -1)
         curses.init_pair(cls.BASE, -1, -1)
         curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, -1)
+        curses.init_pair(cls.EDITED, curses.COLOR_YELLOW, -1)
 
     @property
     def attr(self) -> int:
@@ -422,10 +476,25 @@ class ColorPair(IntEnum):
         return curses.color_pair(self)
 
 
+def common_prefix[T](l1: Iterable[T], l2: Iterable[T]) -> Generator[T]:
+    for i1, i2 in zip(l1, l2):
+        if i1 != i2:
+            break
+        yield i1
+
+
+@dataclass
+class Edit:
+    prelude: list[str]
+    text: list[str]
+    epilogue: list[str]
+
+
 @dataclass
 class Decision:
     conflict: Conflict
     resolution: Resolution = Resolution.UNRESOLVED
+    edit: list[str] = field(default_factory=list[str])
 
     @property
     def linecount(self) -> int:
@@ -439,6 +508,8 @@ class Decision:
             case Resolution.USE_A_FIRST | Resolution.USE_B_FIRST:
                 return (self._text_height(self.conflict.a)
                         + self._text_height(self.conflict.b))
+            case Resolution.EDITED:
+                return self._text_height(self.edit)
 
     def _text_height(self, text: list[str]) -> int:
         return max(1, len(text))
@@ -460,6 +531,8 @@ class Decision:
                     self._text_width(self.conflict.a),
                     self._text_width(self.conflict.b)
                 )
+            case Resolution.EDITED:
+                return self._text_width(self.edit)
 
     def _draw_with_gutter(
         self,
@@ -493,6 +566,10 @@ class Decision:
     def _draw_base(self, window: Pane, color: ColorPair, p: str, lineno: int) -> int:
         return self._draw_with_gutter(window, self.conflict.base, color, p, lineno)
 
+    def _draw_edit(self, window: Pane, lineno: int) -> int:
+        prefix = ' ' if curses.has_colors() else 'E'
+        return self._draw_with_gutter(window, self.edit, ColorPair.EDITED, prefix, lineno)
+
     def draw(self, window: Pane, lineno: int) -> int:
         match self.resolution:
             case Resolution.UNRESOLVED:
@@ -509,13 +586,14 @@ class Decision:
                 lineno = self._draw_a(window, lineno)
             case Resolution.USE_BASE:
                 lineno = self._draw_base(window, ColorPair.BASE, ' ', lineno)
+            case Resolution.EDITED:
+                lineno = self._draw_edit(window, lineno)
         return lineno
 
     def lines(self) -> Generator[str]:
         match self.resolution:
             case Resolution.UNRESOLVED:
-                #TODO: Write out the diff3 block
-                yield from self.conflict.base
+                yield from self.conflict_lines()
             case Resolution.USE_A:
                 yield from self.conflict.a
             case Resolution.USE_B:
@@ -528,6 +606,17 @@ class Decision:
                 yield from self.conflict.a
             case Resolution.USE_BASE:
                 yield from self.conflict.base
+            case Resolution.EDITED:
+                yield from self.edit
+
+    def conflict_lines(self) -> Generator[str]:
+        yield f'<<<<<<< {self.conflict.a_label}'
+        yield from self.conflict.a
+        yield f'||||||| {self.conflict.base_label}'
+        yield from self.conflict.base
+        yield f'======='
+        yield from self.conflict.b
+        yield f'>>>>>>> {self.conflict.b_label}'
 
 def terminal_supports_xterm_mouse() -> bool:
     xm = curses.tigetstr('XM')
@@ -653,11 +742,11 @@ class DLMerge:
         self._output_pane.resize(*self._output_dim())
 
     def _select_conflict(self, n: int) -> None:
-        if n not in range(len(self._merge_output.decisions)):
+        try:
+            current_decision = self._merge_output.get_decision(n)
+        except IndexError:
             return
-
         self._selected_conflict = n
-        current_decision = self._merge_output.decisions[n]
 
         self._change_panes[0].set_change(current_decision.conflict.base, current_decision.conflict.a)
         self._change_panes[1].set_change(current_decision.conflict.base, current_decision.conflict.b)
@@ -667,6 +756,55 @@ class DLMerge:
         new_hsplit = min(max_change_height, lines // 2)
         self._move_hsplit_to(new_hsplit)
         self._output_pane.scroll_to_conflict(self._selected_conflict)
+
+    def _get_chunk_if_text(self, i: int) -> list[str]:
+        try:
+            chunk = self._merge_output.edited_chunk(i)
+            if not isinstance(chunk, Decision):
+                return chunk
+        except IndexError:
+            pass
+        return []
+
+    def _edit_selected_conflict(self) -> None:
+        selected_decision = self._merge_output.get_decision(self._selected_conflict)
+        decision_chunk_index = self._merge_output.decision_chunk_indices[self._selected_conflict]
+        prelude = self._get_chunk_if_text(decision_chunk_index - 1)
+        epilogue = self._get_chunk_if_text(decision_chunk_index + 1)
+        conflicted_lines: Iterable[str]
+        if selected_decision.resolution == Resolution.EDITED:
+            conflicted_lines = selected_decision.edit
+        else:
+            conflicted_lines = selected_decision.conflict_lines()
+        editor_lines = [*prelude, *conflicted_lines, *epilogue]
+        editor = os.getenv('VISUAL', os.getenv('EDITOR', 'vi'))
+        with NamedTemporaryFile('w+', delete_on_close=False, prefix='dlmerge-') as editor_file:
+            editor_file.writelines(f'{line}\n' for line in editor_lines)
+            editor_file.close()
+            curses.def_prog_mode()
+            curses.endwin()
+            try:
+                subprocess.run(
+                    editor.split(' ')
+                    + [f'+{len(prelude) + 1}', editor_file.name],
+                    encoding='utf-8',
+                    check=True
+                )
+            except subprocess.CalledProcessError:
+                #TODO: error dialog
+                pass
+            finally:
+                curses.reset_prog_mode()
+            with open(editor_file.name, 'r') as f:
+                newlines = f.read().splitlines()
+
+        if editor_lines == newlines:
+            return
+        new_prelude = list(common_prefix(prelude, newlines))
+        new_epilogue = [*reversed([*common_prefix(reversed(epilogue), reversed(newlines))])]
+        edit_text = newlines[len(new_prelude):-len(new_epilogue) if new_epilogue else len(newlines)]
+        edit = Edit(new_prelude, edit_text, new_epilogue)
+        self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
 
     def _change_a_dim(self) -> tuple[int, int, int, int]:
         return self._hsplit_row, self._vsplit_col, 0, 0
@@ -763,6 +901,8 @@ class DLMerge:
                 self._output_pane.resolve(self._selected_conflict, Resolution.USE_BASE)
             elif c == ord('u'):
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
+            elif c == ord('e'):
+                self._edit_selected_conflict()
             elif c == ord('w'):
                 self._save()
                 return
