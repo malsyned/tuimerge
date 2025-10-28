@@ -209,13 +209,20 @@ class ChangePane(Pane):
             tmpnew.writelines(f'{line}\n' for line in new)
             tmpnew.close()
 
+            #TODO: Consider supporting non-unified diffs as well
             diff_result = subprocess.run(
                 f'diff --text --unified={len(orig) + len(new)}'.split(' ')
                 + [tmporig.name, tmpnew.name],
                 stdout=subprocess.PIPE,
                 encoding='utf-8'
             )
-        contents = diff_result.stdout.splitlines()[3:]  # skip headers
+        contents = [
+            line for line in diff_result.stdout.splitlines()
+            if (
+                any(line.startswith(c) for c in '+-<> ')
+                and not any(line.startswith(p) for p in['---', '+++'])
+            )
+        ]
         height = len(contents)
         width = max(map(len, contents))
         self._hscroll = 0
@@ -225,9 +232,9 @@ class ChangePane(Pane):
         for i, line in enumerate(contents):
             prefix = line[0]
             data = line[1:]
-            if prefix == '+':
+            if prefix in ('+', '>'):
                 attr = ColorPair.DIFF_ADDED.attr
-            elif prefix == '-':
+            elif prefix in ('-', '<'):
                 attr = ColorPair.DIFF_REMOVED.attr
             else:
                 attr = curses.A_NORMAL
@@ -818,9 +825,11 @@ class DLMerge:
 
         if editor_lines == newlines:
             return
+        # TODO: Should the new prelude and epilogue be calculated from the
+        # original prelude and epilogue chunks instead of the edited ones?
         new_prelude = list(common_prefix(prelude, newlines))
         new_epilogue = [*reversed([*common_prefix(reversed(epilogue), reversed(newlines))])]
-        edit_text = newlines[len(new_prelude):-len(new_epilogue) if new_epilogue else len(newlines)]
+        edit_text = newlines[len(new_prelude):len(newlines) - len(new_epilogue)]
         edit = Edit(new_prelude, edit_text, new_epilogue)
         self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
 
