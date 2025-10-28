@@ -566,7 +566,10 @@ class Decision:
         if text:
             for i, line in enumerate(text):
                 if i == 0:
-                    this_prefix = ord(prefix)
+                    if not prefix or prefix == ' ':
+                        this_prefix = curses.ACS_ULCORNER
+                    else:
+                        this_prefix = ord(prefix)
                 elif i == len(text) - 1 and end_chunk:
                     this_prefix = curses.ACS_LLCORNER
                 else:
