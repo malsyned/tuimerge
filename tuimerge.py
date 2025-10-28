@@ -675,7 +675,7 @@ class Revision:
     filename: Optional[str]
     label: Optional[str]
 
-class DLMerge:
+class TUIMerge:
     def __init__(
         self,
         file_a: Revision,
@@ -813,7 +813,7 @@ class DLMerge:
             conflicted_lines = selected_decision.conflict_lines()
         editor_lines = [*prelude, *conflicted_lines, *epilogue]
         editor = os.getenv('VISUAL', os.getenv('EDITOR', 'vi'))
-        with NamedTemporaryFile('w+', delete_on_close=False, prefix='dlmerge-') as editor_file:
+        with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as editor_file:
             editor_file.writelines(f'{line}\n' for line in editor_lines)
             editor_file.close()
             curses.def_prog_mode()
@@ -1014,7 +1014,7 @@ class DLMerge:
 
         with (
             NamedTemporaryFile('w+', delete_on_close=False) as merged_file,
-            NamedTemporaryFile('w+', delete_on_close=False, prefix='dlmerge-') as diff_file
+            NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as diff_file
         ):
             merged_file.writelines(f'{line}\n' for line in self._merge_output.lines(ignore_unresolved=True))
             merged_file.close()
@@ -1321,8 +1321,9 @@ def main() -> None:
             yours_label, yours
         )
 
-    with DLMerge(myfile, yourfile, oldfile, merge, outfile=outfile) as dlmerge:
-        dlmerge.run()
+    tuimerge = TUIMerge(myfile, yourfile, oldfile, merge, outfile=outfile)
+    with  tuimerge:
+        tuimerge.run()
 
     exit()
 
