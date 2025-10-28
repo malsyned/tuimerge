@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum, auto
 import os
 import re
+import shutil
 import subprocess
 import sys
 from tempfile import NamedTemporaryFile
@@ -319,13 +320,12 @@ class MergeOutput:
                     noerror(pane.content.addstr, lineno, 0, line)
                     lineno += 1
 
-    def lines(self) -> Generator[str]:
+    def lines(self, ignore_unresolved: bool = False) -> Generator[str]:
         for e in self.edited_chunks():
             if isinstance(e, Decision):
-                yield from e.lines()
+                yield from e.lines(ignore_unresolved=ignore_unresolved)
             else:
-                for line in e:
-                    yield line
+                yield from e
 
 
 def noerror[**P, T](f: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> None:
@@ -617,10 +617,13 @@ class Decision:
                 lineno = self._draw_edit(window, selected, lineno)
         return lineno
 
-    def lines(self) -> Generator[str]:
+    def lines(self, ignore_unresolved: bool = False) -> Generator[str]:
         match self.resolution:
             case Resolution.UNRESOLVED:
-                yield from self.conflict_lines()
+                if ignore_unresolved:
+                    yield from self.conflict.base
+                else:
+                    yield from self.conflict_lines()
             case Resolution.USE_A:
                 yield from self.conflict.a
             case Resolution.USE_B:
@@ -932,6 +935,8 @@ class DLMerge:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             elif c == ord('e'):
                 self._edit_selected_conflict()
+            elif c == ord('v'):
+                self._view_diff()
             elif c == ord('w'):
                 self._save()
                 return
@@ -983,6 +988,83 @@ class DLMerge:
         with open(outfile, 'w') as f:
             #FIXME: Deal properly with files that don't have newlines
             f.writelines(f'{line}\n' for line in self._merge_output.lines())
+
+    def _view_diff(self) -> None:
+        orig_rev = self._files[2]
+        if not orig_rev.filename:
+            raise ValueError(f'No filename available for original file {orig_rev.label or ""}')
+        orig_desc = orig_rev.label or orig_rev.filename or ''
+        merge_desc = self._outfile or orig_desc
+        if orig_desc:
+            orig_desc += ' '
+        if merge_desc:
+            merge_desc += ' '
+        orig_desc += '(Base)'
+        merge_desc += '(Merge)'
+
+        # TODO: Is this too cheeky?
+        pager_program = pager()
+        looks_like_less = 'less' in pager_program
+        diff_opts = ['--color=always'] if looks_like_less else []
+
+        with (
+            NamedTemporaryFile('w+', delete_on_close=False) as merged_file,
+            NamedTemporaryFile('w+', delete_on_close=False, prefix='dlmerge-') as diff_file
+        ):
+            merged_file.writelines(f'{line}\n' for line in self._merge_output.lines(ignore_unresolved=True))
+            merged_file.close()
+
+            try:
+                subprocess.run(
+                    f'diff --text --unified'.split(' ')
+                    + diff_opts
+                    + ['--label', orig_desc, '--label', merge_desc, '--']
+                    + [orig_rev.filename, merged_file.name],
+                    stdout=diff_file,
+                    encoding=sys.getdefaultencoding()
+                )
+                curses.def_prog_mode()
+                curses.endwin()
+            except subprocess.CalledProcessError:
+                # TODO: error dialog
+                pass
+
+            try:
+                ## work around some common pager quirks ##
+                pager_env = os.environ.copy()
+                # -R: process ANSI color escapes
+                # -c: start small files on top line of screen, not bottom line
+                less_opts = (
+                    re.sub(r'-?[FX]\$?', '', pager_env.get('LESS', ''))
+                    + '$Rc'
+                )
+                pager_env['LESS'] = less_opts
+                # force GNU more to pause at EOF
+                pager_env['POSIXLY_CORRECT'] = '1'
+
+                #TODO: if diff is empty, show error dialog instead of pager
+                subprocess.run(
+                    [pager(), diff_file.name],
+                    encoding=sys.getdefaultencoding(),
+                    check=True,
+                    env=pager_env
+                )
+            except subprocess.CalledProcessError:
+                #TODO: error dialog
+                pass
+            finally:
+                curses.reset_prog_mode()
+
+
+def pager() -> str:
+    return (
+        os.getenv('PAGER', None)
+        or shutil.which('less')
+        or shutil.which('more')
+        or shutil.which('/usr/bin/more')
+        or shutil.which('/bin/more')
+        or 'more'  # will almost certainly fail, but give it a shot
+    )
 
 
 def normalize_ch(ch: int | str | None, default: int) -> int:
