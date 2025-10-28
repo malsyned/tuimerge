@@ -23,6 +23,7 @@ from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, S
 # Key bindings
 # (n) next conflict
 # (p) previous conflict
+# (shift+n)/(shift+p) next/previous unresolved conflict
 # (a) accept version A
 # (b) accept version B
 # (A) accept combination, A first
@@ -34,7 +35,7 @@ from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, S
 # (E) open the entire merged file in an editor
 # (d) diff latest merge results with original
 # (w) or (s) save
-# (q) quit, prompt to save
+# (q, ^X) quit, prompt to save
 # (Q) quit, discard changes
 # (?) show keybindings
 # (Tab) or (click) move focus between A, B, and merge result
