@@ -60,6 +60,58 @@ def clamp[T: float](minimum: T, value: T, maximum: T) -> T:
     return max(minimum, min(value, maximum))
 
 
+class Dialog:
+    def __init__(self) -> None:
+        self._win = curses.newwin(1, 1, 0, 0)
+        self._pad = curses.newpad(1, 1)
+        self._panel = panel.new_panel(self._win)
+        self._panel.hide()
+        self._color = ColorPair.DIALOG_INFO
+        self._text = ' '
+        self._prompt: str | None = None
+        self._wide = False
+        self._center = True
+
+    def set_contents(self, text: str, prompt: Optional[str], center: bool = False, wide: bool = False) -> None:
+        self._text = text
+        self._prompt = prompt
+        self._wide = wide
+        self._center = center
+
+    def set_color(self, color: ColorPair) -> None:
+        self._color = color
+
+    def resize(self, screen_nlines: int, screen_ncols: int) -> None:
+        max_width = screen_ncols - 4 if self._wide else screen_ncols * 2 // 3
+        lines = list(wrap(self._text, max_width))
+
+        contents_height = (len(lines) + (2 if self._prompt else 0)) or 1
+        contents_width = max([*map(len, lines), len(self._prompt or '')]) or 1
+        height = min(contents_height + 2, screen_nlines)
+        width = contents_width + 4
+        row = (screen_nlines - height) // 2
+        col = (screen_ncols - width) // 2
+
+        self._win = curses.newwin(height, width, row, col)
+        self._pad = curses.newpad(contents_height, contents_width)
+        self._win.attron(self._color.attr)
+        self._win.box()
+        self._win.attroff(self._color.attr)
+        for i, line in enumerate(lines):
+            col = (contents_width - len(line)) // 2 if self._center else 0
+            self._pad.addstr(i, col, line)
+        if self._prompt:
+            noerror(self._pad.addstr, contents_height - 1, contents_width - len(self._prompt), self._prompt)
+        self._pad.overwrite(self._win, 0, 0, 1, 2, height - 2, width - 3)
+        self._panel.replace(self._win)
+
+    def show(self) -> None:
+        self._panel.top()
+        self._panel.show()
+
+    def hide(self) -> None:
+        self._panel.hide()
+
 class Pane:
     MIN_HEIGHT = 2
     MIN_WIDTH = 2
@@ -354,6 +406,7 @@ def noerror[**P, T](f: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> Non
 class OutputPane(Pane):
     def __init__(
         self,
+        parent: TUIMerge,
         file: Revision,
         outfile: str | None,
         resolved_color: ColorPair,
@@ -364,6 +417,7 @@ class OutputPane(Pane):
         begin_line: int,
         begin_col: int,
     ):
+        self._parent = parent
         self._file = file
         self._outfile = outfile
         self._merge_output = merge_output
@@ -424,7 +478,7 @@ class OutputPane(Pane):
             assert(edit is None)
 
             if decision.resolution == Resolution.EDITED:
-                result = dialog.show(
+                result = self._parent.show_dialog(
                     'Resolution has been edited externally.\n\n'
                     f'Discard edits and change resolution to "{resolution.value}"?',
                     '(Y)es/(N)o', 'yn',
@@ -709,63 +763,6 @@ def wrap(text: str, width: int) -> Generator[str]:
         else:
             yield line
 
-class Dialog:
-    def set_screen(self, scr: curses.window) -> None:
-        self._stdscr = scr
-
-    def show(
-        self,
-        text: str,
-        prompt: Optional[str],
-        inputs: str,
-        color: ColorPair = ColorPair.DIALOG_INFO,
-        esc: bool = True,
-        enter: bool = True,
-        center: bool = True,
-        wide: bool = False,
-    ) -> str | bool:
-        rows, cols = self._stdscr.getmaxyx()
-        max_width = cols - 4 if wide else cols * 2 // 3
-        lines = list(wrap(text, max_width))
-
-        width = max([len(prompt or ''), *map(len, lines)]) + 4
-        height = len(lines) + 2 + (2 if prompt else 0)
-
-        win = curses.newwin(height, width, (rows - height) // 2, (cols - width) // 2)
-        win.attron(color.attr)
-        win.box()
-        win.attroff(color.attr)
-        for i, line in enumerate(lines):
-            col = (width - len(line)) // 2 if center else 2
-            win.addstr(1 + i, col, line)
-        if prompt:
-            win.addstr(height - 2, width - 2 - len(prompt), prompt)
-
-        pan = panel.new_panel(win)
-        pan.top()
-        panel.update_panels()
-        curses.doupdate()
-
-        waitfor = [ord(c) for c in inputs]
-        escdelay = curses.get_escdelay()
-        curses.set_escdelay(50)
-        if esc:
-            waitfor.append(27)
-        if enter:
-            waitfor.extend([ord(' '), ord('\n')])
-        # FIXME: Doesn't deal gracefully with screen resizes
-        while (c := self._stdscr.getch()) not in waitfor:
-            pass
-        curses.set_escdelay(escdelay)
-        if c == 27:
-            return False
-        if c in [ord('\n'), ord(' ')]:
-            return inputs[0]
-        return chr(c)
-
-
-dialog = Dialog()
-
 
 @dataclass
 class Revision:
@@ -802,7 +799,6 @@ class TUIMerge:
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
         term_enable_mouse_drag()
-        dialog.set_screen(self._stdscr)
 
         return self
 
@@ -874,6 +870,7 @@ class TUIMerge:
     def _resized(self) -> None:
         self._top_half_resized()
         self._output_pane.resize(*self._output_dim())
+        self._dialog.resize(*self._stdscr.getmaxyx())
 
     def _select_conflict(self, n: int) -> None:
         try:
@@ -970,29 +967,83 @@ class TUIMerge:
         rows, _ = self._stdscr.getmaxyx()
         self._stdscr.move(rows - 1, 0)
 
+    def _update(self) -> None:
+        panel.update_panels()
+        curses.doupdate()
+        self._banish_cursor()
+
+    def _getch(self) -> int:
+        while True:
+            c = self._stdscr.getch()
+            if c == curses.KEY_RESIZE:
+                self._resized()
+                self._update()
+            else:
+                return c
+
+    def show_dialog(
+        self,
+        text: str,
+        prompt: Optional[str],
+        inputs: str,
+        color: ColorPair = ColorPair.DIALOG_INFO,
+        esc: bool = True,
+        enter: bool = True,
+        center: bool = True,
+        wide: bool = False,
+    ) -> str | bool:
+        self._dialog.set_contents(text, prompt, center=center, wide=wide)
+        self._dialog.set_color(color)
+        self._dialog.resize(*self._stdscr.getmaxyx())
+        self._dialog.show()
+        self._update()
+
+        waitfor = [ord(c) for c in inputs]
+        escdelay = curses.get_escdelay()
+        curses.set_escdelay(50)
+        if esc:
+            waitfor.append(27)
+        if enter:
+            waitfor.extend([ord(' '), ord('\n')])
+        while (c := self._getch()) not in waitfor:
+            pass
+        self._dialog.hide()
+        curses.set_escdelay(escdelay)
+        if c == 27:
+            return False
+        if c in [ord('\n'), ord(' ')]:
+            return inputs[0]
+        return chr(c)
+
+
     def run(self) -> None:
         self._change_panes = [
             ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
             ChangePane(self._files[1], 'B', 'Incoming', ColorPair.B, *self._change_b_dim()),
         ]
         self._output_pane = OutputPane(
-                self._files[2], self._outfile, ColorPair.BASE, ColorPair.UNRESOLVED, self._merge_output, *self._output_dim())
+            self,
+            self._files[2],
+            self._outfile,
+            ColorPair.BASE,
+            ColorPair.UNRESOLVED,
+            self._merge_output,
+            *self._output_dim()
+        )
 
         self._panes: list[Pane] = [
             *self._change_panes,
             self._output_pane,
         ]
+        self._dialog = Dialog()
 
         self._set_focus(2)
         self._select_conflict(0)
         self._draw_borders()
 
         while True:
-            panel.update_panels()
-            curses.doupdate()
-            self._banish_cursor()
-
-            c = self._stdscr.getch()
+            self._update()
+            c = self._getch()
             if c == ord('q'):
                 dialog_text = 'Quit without saving?'
                 if self._merge_output.fully_unresolved():
@@ -1000,7 +1051,7 @@ class TUIMerge:
                 else:
                     dialog_color = ColorPair.DIALOG_WARNING
                     dialog_text = 'Unsaved changes made.\n\n' + dialog_text
-                result = dialog.show(
+                result = self.show_dialog(
                     dialog_text,
                     '(Y)es/(N)o', 'yn',
                     color=dialog_color
@@ -1055,15 +1106,12 @@ class TUIMerge:
                 self._view_diff()
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
-            elif c == ord('!'):
-                dialog.show('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
+            # elif c == ord('!'):
+            #     self.show_dialog('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
             elif c in (ord('w'), ord('s')):
                 if self._save():
                     return
 
-            elif c == curses.KEY_RESIZE:
-                curses.update_lines_cols()
-                self._resized()
             elif c == curses.KEY_MOUSE:
                 _, mcol, mrow, _, bstate = curses.getmouse()
 
@@ -1121,7 +1169,7 @@ class TUIMerge:
             'Arrows   Scroll focused pane',
             '?        Show this help',
         ])
-        dialog.show(help_text, None, 'cq', center=False, wide=True)
+        self.show_dialog(help_text, None, 'cq', center=False, wide=True)
 
     def _save(self) -> bool:
         outfile = self._outfile or self._files[2].filename
@@ -1137,7 +1185,7 @@ class TUIMerge:
                 f'Really save {outfile} and quit?'
             )
             dialog_color = ColorPair.DIALOG_WARNING
-        result = dialog.show(
+        result = self.show_dialog(
             dialog_text,
             '(Y)es/(N)o', 'yn',
             color=dialog_color
