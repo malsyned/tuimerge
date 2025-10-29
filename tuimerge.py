@@ -1050,7 +1050,7 @@ class TUIMerge:
                 self._view_diff()
             elif c == ord('!'):
                 dialog.show('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
-            elif c == ord('w'):
+            elif c in (ord('w'), ord('s')):
                 if self._save():
                     return
 
