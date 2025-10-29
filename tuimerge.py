@@ -1077,7 +1077,7 @@ class TUIMerge:
                 self._panes[self._focused].scroll_horiz(2)
             elif c in (curses.KEY_NPAGE, ord(' ')):
                 self._panes[self._focused].scroll_page(1)
-            elif c in (curses.KEY_PPAGE, curses.KEY_BACKSPACE):
+            elif c == curses.KEY_PPAGE:
                 self._panes[self._focused].scroll_page(-1)
             elif c in (curses.KEY_SR, ord('K'), ord('-')):
                 self._move_hsplit(-1)
@@ -1105,9 +1105,9 @@ class TUIMerge:
                 self._output_pane.resolve(self._selected_conflict, Resolution.USE_A_FIRST)
             elif c == ord('B'):
                 self._output_pane.resolve(self._selected_conflict, Resolution.USE_B_FIRST)
-            elif c == ord('i'):
+            elif c in (ord('i'), curses.KEY_DC):
                 self._output_pane.resolve(self._selected_conflict, Resolution.USE_BASE)
-            elif c == ord('u'):
+            elif c in (ord('u'), curses.KEY_BACKSPACE):
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             elif c == ord('e'):
                 self._edit_selected_conflict()
