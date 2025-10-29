@@ -170,6 +170,10 @@ class Pane:
         self._hscroll = clamp(0, n, self.width - 1)
         self._draw()
 
+    def scroll_page(self, n: int) -> None:
+        content_height, _ = self._content_panel.window().getmaxyx()
+        self.scroll_vert_to(self._vscroll + n * content_height)
+
     def _draw_titlebar(self) -> None:
         titlewin = self._title_panel.window()
         bg_attr = self._color.attr | curses.A_REVERSE
@@ -1071,6 +1075,10 @@ class TUIMerge:
                 self._panes[self._focused].scroll_horiz(-2)
             elif c in (curses.KEY_RIGHT, ord('l')):
                 self._panes[self._focused].scroll_horiz(2)
+            elif c in (curses.KEY_NPAGE, ord(' ')):
+                self._panes[self._focused].scroll_page(1)
+            elif c in (curses.KEY_PPAGE, curses.KEY_BACKSPACE):
+                self._panes[self._focused].scroll_page(-1)
             elif c in (curses.KEY_SR, ord('K'), ord('-')):
                 self._move_hsplit(-1)
             elif c in (curses.KEY_SF, ord('J'), ord('='), ord('+')):
