@@ -270,7 +270,7 @@ class ChangePane(Pane):
             #TODO: Consider supporting non-unified diffs as well
             diff_result = subprocess.run(
                 f'diff --text --unified={len(orig) + len(new)}'.split(' ')
-                + [tmporig.name, tmpnew.name],
+                + ['--', tmporig.name, tmpnew.name],
                 stdout=subprocess.PIPE,
                 encoding=sys.getdefaultencoding()
             )
@@ -1224,10 +1224,10 @@ class TUIMerge:
 
             try:
                 subprocess.run(
-                    f'diff --text --unified'.split(' ')
+                    'diff --text --unified'.split(' ')
                     + diff_opts
-                    + ['--label', orig_desc, '--label', merge_desc, '--']
-                    + [orig_rev.filename, merged_file.name],
+                    + ['--label', orig_desc, '--label', merge_desc]
+                    + ['--', orig_rev.filename, merged_file.name],
                     stdout=diff_file,
                     encoding=sys.getdefaultencoding()
                 )
@@ -1468,9 +1468,9 @@ def do_diff3(
     myfile: str, oldfile: str, yourfile: str, labels: list[str] = []
 ) -> list[str]:
     diff3_result = subprocess.run(
-        'git merge-file -p --zdiff3 --'.split(' ')
+        'git merge-file -p --zdiff3'.split(' ')
         + labels
-        + [myfile, oldfile, yourfile],
+        + ['--', myfile, oldfile, yourfile],
         stdout=subprocess.PIPE,
         encoding=sys.getdefaultencoding(),
     )
@@ -1481,7 +1481,7 @@ def do_diff2(myfile: str, yourfile: str, labels: list[str] = []) -> list[str]:
         diff_result = subprocess.run(
             'diff --text -U0'.split(' ')
             + labels
-            + [myfile, yourfile],
+            + ['--', myfile, yourfile],
             stdout=subprocess.PIPE,
             encoding=sys.getdefaultencoding()
         )
