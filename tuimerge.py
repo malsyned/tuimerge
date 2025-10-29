@@ -736,7 +736,7 @@ class Dialog:
         win.box()
         win.attroff(color.attr)
         for i, line in enumerate(lines):
-            col = (width - len(line)) // 2 if center else 1
+            col = (width - len(line)) // 2 if center else 2
             win.addstr(1 + i, col, line)
         if prompt:
             win.addstr(height - 2, width - 2 - len(prompt), prompt)
