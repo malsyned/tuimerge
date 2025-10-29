@@ -1502,6 +1502,8 @@ def main() -> None:
                         help='YOURFILE in 3-way merge')
     args = parser.parse_args()
 
+    view_only = args.view_only or not sys.stdout.isatty()
+
     labels: list[str] = args.label
     label_iter = iter(labels)
 
@@ -1520,7 +1522,7 @@ def main() -> None:
         assert(myfile.filename and oldfile.filename and yourfile.filename)
         diff3 = do_diff3(
             myfile.filename, oldfile.filename, yourfile.filename, label_args)
-        if args.view_only:
+        if view_only:
             with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff3)
                 viewfile.close()
@@ -1545,7 +1547,7 @@ def main() -> None:
         mine_label = myfile.label or myfile.filename
         yours_label = yourfile.label or yourfile.filename
         assert(mine_label and yours_label)
-        if args.view_only:
+        if view_only:
             with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff2)
                 viewfile.close()
