@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 from tempfile import NamedTemporaryFile
+import textwrap
 from types import MappingProxyType, TracebackType
 from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, Self, Sequence
 
@@ -36,6 +37,7 @@ from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, S
 # (E) open the entire merged file in an editor
 # (d) diff latest merge results with original
 # (w) or (s) save
+# (shift+s) save as (will have to figure out how to integrate readline)
 # (q, ^X) quit, prompt to save
 # (Q) quit, discard changes
 # (?) show keybindings
@@ -328,6 +330,18 @@ class MergeOutput:
             else:
                 yield from e
 
+    def fully_resolved(self) -> bool:
+        return not any(
+            d.resolution == Resolution.UNRESOLVED
+            for d in self.decisions()
+        )
+
+    def fully_unresolved(self) -> bool:
+        return all(
+            d.resolution == Resolution.UNRESOLVED
+            for d in self.decisions()
+        )
+
 
 def noerror[**P, T](f: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> None:
     try:
@@ -385,17 +399,13 @@ class OutputPane(Pane):
                 lineno += len(e)
 
     def _fully_resolved(self) -> bool:
-        return not any(
-            d.resolution == Resolution.UNRESOLVED
-            for d in self._merge_output.decisions()
-        )
+        return self._merge_output.fully_resolved()
 
     def resolve(self, conflict: int, resolution: Resolution, edit: Optional[Edit] = None) -> None:
-        #TODO: If already resolved as edited, confirm before discarding edit
         decision_chunk_index = self._merge_output.decision_chunk_indices[conflict]
         decision = self._merge_output.get_decision(conflict)
         assert(isinstance(decision, Decision))
-        decision.resolution = resolution
+
         if resolution == Resolution.EDITED:
             assert(edit is not None)
             if decision_chunk_index > 0:
@@ -407,8 +417,21 @@ class OutputPane(Pane):
             else:
                 assert(not edit.epilogue)
             decision.edit = edit.text
+            # TODO: Detect when resolution is equal to one of the stock ones,
+            # rewrite resolution to be one of those instead
         else:
             assert(edit is None)
+
+            if decision.resolution == Resolution.EDITED:
+                result = dialog.show(
+                    'Resolution has been edited externally.\n'
+                    f'Discard edits and change resolution to "{resolution.value}"?',
+                    '(Y)es/(N)o', 'yn',
+                    color=ColorPair.DIALOG_WARNING
+                )
+                if result != 'y':
+                    return
+
             try:
                 self._merge_output.edited_text_chunks[decision_chunk_index - 1] = None
             except IndexError:
@@ -417,6 +440,8 @@ class OutputPane(Pane):
                 self._merge_output.edited_text_chunks[decision_chunk_index + 1] = None
             except IndexError:
                 pass
+
+        decision.resolution = resolution
         self._resize_content(self._merge_output.height, self._merge_output.width)
         if self._fully_resolved():
             self._color = self._resolved_color
@@ -457,13 +482,13 @@ class OutputPane(Pane):
 
 
 class Resolution(Enum):
-    UNRESOLVED = auto()
-    USE_A = auto()
-    USE_B = auto()
-    USE_A_FIRST = auto()
-    USE_B_FIRST = auto()
-    USE_BASE = auto()
-    EDITED = auto()
+    UNRESOLVED = "Unresolved"
+    USE_A = "Use changes from file A"
+    USE_B = "Use changes from file B"
+    USE_A_FIRST = "Combine changes, file A first"
+    USE_B_FIRST = "Combine changes, file B first"
+    USE_BASE = "Ignore changes from both A and B"
+    EDITED = "Edited externally"
 
 
 class ColorPair(IntEnum):
@@ -474,6 +499,9 @@ class ColorPair(IntEnum):
     BASE = auto()
     UNRESOLVED = auto()
     EDITED = auto()
+    DIALOG_INFO = auto()
+    DIALOG_WARNING = auto()
+    DIALOG_ERROR = auto()
 
     @classmethod
     def init(cls) -> None:
@@ -487,6 +515,9 @@ class ColorPair(IntEnum):
         curses.init_pair(cls.BASE, -1, -1)
         curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, -1)
         curses.init_pair(cls.EDITED, curses.COLOR_YELLOW, -1)
+        curses.init_pair(cls.DIALOG_INFO, curses.COLOR_BLUE + bright, -1)
+        curses.init_pair(cls.DIALOG_WARNING, curses.COLOR_YELLOW, -1)
+        curses.init_pair(cls.DIALOG_ERROR, curses.COLOR_RED, -1)
 
     @property
     def attr(self) -> int:
@@ -670,10 +701,72 @@ def term_enable_mouse_drag(enable: bool = True) -> None:
     print(f'\033[?1002{c}', flush=True)
 
 
+def wrap(text: str, width: int) -> Generator[str]:
+    for line in text.split('\n'):
+        if line:
+            yield from textwrap.wrap(line, width)
+        else:
+            yield line
+
+class Dialog:
+    def set_screen(self, scr: curses.window) -> None:
+        self._stdscr = scr
+
+    def show(
+        self,
+        text: str,
+        prompt: str,
+        inputs: str,
+        color: ColorPair = ColorPair.DIALOG_INFO,
+        esc: bool = True,
+        enter: bool = True,
+    ) -> str | bool:
+        rows, cols = self._stdscr.getmaxyx()
+        max_width = cols * 2 // 3
+        lines = list(wrap(text, max_width))
+
+        width = max([len(prompt), *map(len, lines)]) + 4
+        height = len(lines) + 4
+
+        win = curses.newwin(height, width, (rows - height) // 2, (cols - width) // 2)
+        win.attron(color.attr)
+        win.box()
+        win.attroff(color.attr)
+        for i, line in enumerate(lines):
+            win.addstr(1 + i, (width - len(line)) // 2, line)
+        win.addstr(height - 2, width - 2 - len(prompt), prompt)
+
+        pan = panel.new_panel(win)
+        pan.top()
+        panel.update_panels()
+        curses.doupdate()
+
+        waitfor = [ord(c) for c in inputs]
+        escdelay = curses.get_escdelay()
+        curses.set_escdelay(50)
+        if esc:
+            waitfor.append(27)
+        if enter:
+            waitfor.append(ord('\n'))
+        # FIXME: Doesn't deal gracefully with screen resizes
+        while (c := self._stdscr.getch()) not in waitfor:
+            pass
+        curses.set_escdelay(escdelay)
+        if c == 27:
+            return False
+        if c == ord('\n'):
+            return inputs[0]
+        return chr(c)
+
+
+dialog = Dialog()
+
+
 @dataclass
 class Revision:
     filename: Optional[str]
     label: Optional[str]
+
 
 class TUIMerge:
     def __init__(
@@ -704,6 +797,7 @@ class TUIMerge:
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
         term_enable_mouse_drag()
+        dialog.set_screen(self._stdscr)
 
         return self
 
@@ -895,7 +989,19 @@ class TUIMerge:
 
             c = self._stdscr.getch()
             if c == ord('q'):
-                return
+                dialog_text = 'Quit without saving?'
+                if self._merge_output.fully_unresolved():
+                    dialog_color = ColorPair.DIALOG_INFO
+                else:
+                    dialog_color = ColorPair.DIALOG_WARNING
+                    dialog_text = 'Unsaved changes made.\n\n' + dialog_text
+                result = dialog.show(
+                    dialog_text,
+                    '(Y)es/(N)o', 'yn',
+                    color=dialog_color
+                )
+                if result == 'y':
+                    return
             elif c == ord('\t'):
                 self._set_focus((self._focused + 1) % 3)
             elif c == curses.KEY_BTAB:
@@ -942,9 +1048,11 @@ class TUIMerge:
                 self._edit_selected_conflict()
             elif c in (ord('d'), ord('v')):
                 self._view_diff()
+            elif c == ord('!'):
+                dialog.show('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
             elif c == ord('w'):
-                self._save()
-                return
+                if self._save():
+                    return
 
             elif c == curses.KEY_RESIZE:
                 curses.update_lines_cols()
@@ -986,13 +1094,31 @@ class TUIMerge:
                         else:
                             pane.scroll_vert(1)
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
         outfile = self._outfile or self._files[2].filename
         if not outfile:
             raise ValueError('No output filename provided')
+
+        if self._merge_output.fully_resolved():
+            dialog_text = f'Save {outfile} and quit?'
+            dialog_color = ColorPair.DIALOG_INFO
+        else:
+            dialog_text = (
+                'Some conflicts are unresolved. Saved file will contain conflict markers.\n\n'
+                f'Really save {outfile} and quit?'
+            )
+            dialog_color = ColorPair.DIALOG_WARNING
+        result = dialog.show(
+            dialog_text,
+            '(Y)es/(N)o', 'yn',
+            color=dialog_color
+        )
+        if result != 'y':
+            return False
         with open(outfile, 'w') as f:
             #FIXME: Deal properly with files that don't have newlines
             f.writelines(f'{line}\n' for line in self._merge_output.lines())
+        return True
 
     def _view_diff(self) -> None:
         orig_rev = self._files[2]
@@ -1033,6 +1159,7 @@ class TUIMerge:
                 pass
 
             try:
+                #TODO: if diff is empty, show error dialog instead of pager
                 do_pager(diff_file.name)
             except subprocess.CalledProcessError:
                 #TODO: error dialog
@@ -1056,7 +1183,6 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
         curses.def_prog_mode()
         curses.endwin()
     try:
-        #TODO: if diff is empty, show error dialog instead of pager
         subprocess.run(
             [pager(), file],
             encoding=sys.getdefaultencoding(),
