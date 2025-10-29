@@ -52,6 +52,7 @@ from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, S
 
 # TODO:
 # Reconcile navigation and conflict selection
+# Add environment variables like TUIMERGE_EDITOR, TUIMERGE_PAGER, etc.
 
 # Wishlist: Menus
 
@@ -715,26 +716,30 @@ class Dialog:
     def show(
         self,
         text: str,
-        prompt: str,
+        prompt: Optional[str],
         inputs: str,
         color: ColorPair = ColorPair.DIALOG_INFO,
         esc: bool = True,
         enter: bool = True,
+        center: bool = True,
+        wide: bool = False,
     ) -> str | bool:
         rows, cols = self._stdscr.getmaxyx()
-        max_width = cols * 2 // 3
+        max_width = cols - 4 if wide else cols * 2 // 3
         lines = list(wrap(text, max_width))
 
-        width = max([len(prompt), *map(len, lines)]) + 4
-        height = len(lines) + 4
+        width = max([len(prompt or ''), *map(len, lines)]) + 4
+        height = len(lines) + 2 + (2 if prompt else 0)
 
         win = curses.newwin(height, width, (rows - height) // 2, (cols - width) // 2)
         win.attron(color.attr)
         win.box()
         win.attroff(color.attr)
         for i, line in enumerate(lines):
-            win.addstr(1 + i, (width - len(line)) // 2, line)
-        win.addstr(height - 2, width - 2 - len(prompt), prompt)
+            col = (width - len(line)) // 2 if center else 1
+            win.addstr(1 + i, col, line)
+        if prompt:
+            win.addstr(height - 2, width - 2 - len(prompt), prompt)
 
         pan = panel.new_panel(win)
         pan.top()
@@ -747,14 +752,14 @@ class Dialog:
         if esc:
             waitfor.append(27)
         if enter:
-            waitfor.append(ord('\n'))
+            waitfor.extend([ord(' '), ord('\n')])
         # FIXME: Doesn't deal gracefully with screen resizes
         while (c := self._stdscr.getch()) not in waitfor:
             pass
         curses.set_escdelay(escdelay)
         if c == 27:
             return False
-        if c == ord('\n'):
+        if c in [ord('\n'), ord(' ')]:
             return inputs[0]
         return chr(c)
 
@@ -1048,6 +1053,8 @@ class TUIMerge:
                 self._edit_selected_conflict()
             elif c in (ord('d'), ord('v')):
                 self._view_diff()
+            elif c in (ord('?'), ord('/'), curses.KEY_F1):
+                self._show_help()
             elif c == ord('!'):
                 dialog.show('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
             elif c in (ord('w'), ord('s')):
@@ -1093,6 +1100,28 @@ class TUIMerge:
                             pane.scroll_horiz(2)
                         else:
                             pane.scroll_vert(1)
+
+    def _show_help(self) -> None:
+        # TODO: What if the help text is longer than the terminal?
+        # TODO: Run actions associated with most keys
+        help_text = '\n'.join([
+            'N        Jump to next conflict',
+            'P        Jump to previous conflict',
+            'A        ' + Resolution.USE_A.value,
+            'B        ' + Resolution.USE_B.value,
+            'Shift+A  ' + Resolution.USE_A_FIRST.value,
+            'Shift+B  ' + Resolution.USE_B_FIRST.value,
+            'I        ' + Resolution.USE_BASE.value,
+            'U        Unresolve conflict',
+            'E        Open conflict in external editor',
+            'D        View diff between Base and Merge',
+            'S        Save changes and quit',
+            'Q        Quit without saving changes',
+            'Tab      Cycle focus between panes',
+            'Arrows   Scroll focused pane',
+            '?        Show this help',
+        ])
+        dialog.show(help_text, None, 'cq', center=False, wide=True)
 
     def _save(self) -> bool:
         outfile = self._outfile or self._files[2].filename
