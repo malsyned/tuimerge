@@ -6,6 +6,7 @@ import curses
 import curses.panel as panel
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum, auto
+from itertools import chain, repeat
 import os
 import re
 import shutil
@@ -1467,9 +1468,10 @@ def _merge_from_diff(
 def do_diff3(
     myfile: str, oldfile: str, yourfile: str, labels: list[str] = []
 ) -> list[str]:
+    label_args = flag_list('-L', labels)
     diff3_result = subprocess.run(
         'git merge-file -p --zdiff3'.split(' ')
-        + labels
+        + label_args
         + ['--', myfile, oldfile, yourfile],
         stdout=subprocess.PIPE,
         encoding=sys.getdefaultencoding(),
@@ -1478,15 +1480,20 @@ def do_diff3(
 
 
 def do_diff2(myfile: str, yourfile: str, labels: list[str] = []) -> list[str]:
+        label_args = flag_list('--label', labels)
         diff_result = subprocess.run(
             'diff --text -U0'.split(' ')
-            + labels
+            + label_args
             + ['--', myfile, yourfile],
             stdout=subprocess.PIPE,
             encoding=sys.getdefaultencoding()
         )
         return diff_result.stdout.splitlines()
 
+
+def flag_list(flag: str, args: list[str]) -> list[str]:
+    '''return args with flag inserted before every element'''
+    return list(chain.from_iterable(zip(repeat(flag), args)))
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -1516,12 +1523,11 @@ def main() -> None:
         myfile = file1
         oldfile = file2
         yourfile = file3
-        label_args = [arg for label in labels for arg in ['-L', label]]
 
         # Promise the type system I know what I'm doing
         assert(myfile.filename and oldfile.filename and yourfile.filename)
         diff3 = do_diff3(
-            myfile.filename, oldfile.filename, yourfile.filename, label_args)
+            myfile.filename, oldfile.filename, yourfile.filename, labels)
         if view_only:
             with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff3)
@@ -1535,18 +1541,14 @@ def main() -> None:
         myfile = file1
         yourfile = file2
         oldfile = myfile
-        label_args = [arg for label in labels for arg in ['--label', label]]
 
         assert(myfile.filename and yourfile.filename)
         with (open(myfile.filename) as mf, open(yourfile.filename) as yf):
             mine = mf.read().splitlines()
             yours = yf.read().splitlines()
 
-        diff2 = do_diff2(myfile.filename, yourfile.filename, label_args)
+        diff2 = do_diff2(myfile.filename, yourfile.filename, labels)
 
-        mine_label = myfile.label or myfile.filename
-        yours_label = yourfile.label or yourfile.filename
-        assert(mine_label and yours_label)
         if view_only:
             with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff2)
@@ -1555,6 +1557,9 @@ def main() -> None:
                 # TODO: Consider -F -X, unset POSIXLY_CORRECT
                 do_pager(viewfile.name, pause_curses=False)
             exit()
+        mine_label = myfile.label or myfile.filename
+        yours_label = yourfile.label or yourfile.filename
+        assert(mine_label and yours_label)
         merge = merge_from_diff(diff2, mine_label, mine, yours_label, yours)
 
     tuimerge = TUIMerge(myfile, yourfile, oldfile, merge, outfile=outfile)
