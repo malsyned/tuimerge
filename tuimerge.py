@@ -425,7 +425,7 @@ class OutputPane(Pane):
 
             if decision.resolution == Resolution.EDITED:
                 result = dialog.show(
-                    'Resolution has been edited externally.\n'
+                    'Resolution has been edited externally.\n\n'
                     f'Discard edits and change resolution to "{resolution.value}"?',
                     '(Y)es/(N)o', 'yn',
                     color=ColorPair.DIALOG_WARNING
