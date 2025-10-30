@@ -913,7 +913,7 @@ class TUIMerge:
         else:
             conflicted_lines = selected_decision.conflict_lines()
         editor_lines = [*prelude, *conflicted_lines, *epilogue]
-        editor = os.getenv('VISUAL', os.getenv('EDITOR', 'vi'))
+        editor_program = editor()
         with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as editor_file:
             editor_file.writelines(f'{line}\n' for line in editor_lines)
             editor_file.close()
@@ -921,7 +921,7 @@ class TUIMerge:
             curses.endwin()
             try:
                 subprocess.run(
-                    editor.split(' ')
+                    editor_program.split(' ')
                     + [f'+{len(prelude) + 1}', editor_file.name],
                     encoding=sys.getdefaultencoding(),
                     check=True
@@ -1280,14 +1280,37 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
             curses.reset_prog_mode()
 
 
+def hunt_for_binary(name: str) -> str | None:
+    for prefix in ('', '/usr/local/bin/', '/usr/bin/', '/bin/'):
+        found = shutil.which(f'{prefix}{name}')
+        if found:
+            return found
+    return None
+
+
+def getenvtool(*vars: str) -> str | None:
+    for prefix in ('TUIMERGE_', 'MERGE_', ''):
+        for var in vars:
+            found = os.getenv(f'{prefix}{var}')
+            if found:
+                return found
+    return None
+
+
+def editor():
+    return (
+        getenvtool('VISUAL', 'EDITOR')
+        or hunt_for_binary('vi')
+        or 'vi'  # shrug
+    )
+
+
 def pager() -> str:
     return (
-        os.getenv('PAGER', None)
-        or shutil.which('less')
-        or shutil.which('more')
-        or shutil.which('/usr/bin/more')
-        or shutil.which('/bin/more')
-        or 'more'  # will almost certainly fail, but give it a shot
+        getenvtool('PAGER')
+        or hunt_for_binary('less')
+        or hunt_for_binary('more')
+        or 'more'  # shrug
     )
 
 
