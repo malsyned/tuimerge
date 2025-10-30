@@ -685,7 +685,7 @@ class Decision:
         prefix = 'B'
         return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, selected, lineno, end_chunk=end_chunk)
 
-    def _draw_base(self, window: Pane, color: ColorPair, p: str, selected: bool, lineno: int, always_prefix: bool = False) -> int:
+    def _draw_base(self, window: Pane, color: ColorPair, p: str, selected: bool, lineno: int) -> int:
         return self._draw_with_gutter(window, self.conflict.base, color, p, selected, lineno)
 
     def _draw_edit(self, window: Pane, selected: bool, lineno: int) -> int:
@@ -695,7 +695,7 @@ class Decision:
     def draw(self, window: Pane, lineno: int, selected: bool) -> int:
         match self.resolution:
             case Resolution.UNRESOLVED:
-                lineno = self._draw_base(window, ColorPair.UNRESOLVED, '?', selected, lineno, always_prefix=True)
+                lineno = self._draw_base(window, ColorPair.UNRESOLVED, '?', selected, lineno)
             case Resolution.USE_A:
                 lineno = self._draw_a(window, selected, lineno)
             case Resolution.USE_B:
