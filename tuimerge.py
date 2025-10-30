@@ -707,7 +707,7 @@ class Decision:
                 lineno = self._draw_b(window, selected, lineno, end_chunk=False)
                 lineno = self._draw_a(window, selected, lineno, start_chunk=False)
             case Resolution.USE_BASE:
-                lineno = self._draw_base(window, ColorPair.BASE, ' ', selected, lineno)
+                lineno = self._draw_base(window, ColorPair.BASE, 'I', selected, lineno)
             case Resolution.EDITED:
                 lineno = self._draw_edit(window, selected, lineno)
         return lineno
