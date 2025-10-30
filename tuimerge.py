@@ -952,10 +952,7 @@ class TUIMerge:
         prelude = self._get_chunk_if_text(decision_chunk_index - 1)
         epilogue = self._get_chunk_if_text(decision_chunk_index + 1)
         conflicted_lines: Iterable[str]
-        if selected_decision.resolution == Resolution.EDITED:
-            conflicted_lines = selected_decision.edit
-        else:
-            conflicted_lines = selected_decision.conflict_lines()
+        conflicted_lines = selected_decision.lines()
         editor_lines = [*prelude, *conflicted_lines, *epilogue]
         editor_program = editor()
         with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as editor_file:
