@@ -461,9 +461,19 @@ class OutputPane(Pane):
     def _fully_resolved(self) -> bool:
         return self._merge_output.fully_resolved()
 
+    def swap_resolutions(self, conflict: int) -> None:
+        decision = self._merge_output.get_decision(conflict)
+        if decision.resolution == Resolution.USE_A_FIRST:
+            self.resolve(conflict, Resolution.USE_B_FIRST)
+        elif decision.resolution == Resolution.USE_B_FIRST:
+            self.resolve(conflict, Resolution.USE_A_FIRST)
+        elif decision.resolution == Resolution.USE_A:
+            self.resolve(conflict, Resolution.USE_B)
+        elif decision.resolution == Resolution.USE_B:
+            self.resolve(conflict, Resolution.USE_A)
+
     def toggle_resolution(self, conflict: int, resolution: Resolution) -> None:
         decision = self._merge_output.get_decision(conflict)
-
         if resolution in decision.resolution:
             self.resolve(conflict, decision.resolution - resolution)
         else:
@@ -1146,6 +1156,8 @@ class TUIMerge:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A_FIRST)
             elif c == ord('B'):
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_B_FIRST)
+            elif c == ord('x'):
+                self._output_pane.swap_resolutions(self._selected_conflict)
             elif c in (ord('i'), curses.KEY_DC):
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_BASE)
             elif c in (ord('u'), curses.KEY_BACKSPACE):
@@ -1213,6 +1225,7 @@ class TUIMerge:
             'U        Unresolve conflict',
             'E        Open conflict in external editor',
             'D        View diff between Base and Merge',
+            'X        Swap resolution order'
             'S        Save changes and quit',
             'Q        Quit without saving changes',
             'Tab      Cycle focus between panes',
