@@ -1273,8 +1273,8 @@ class TUIMerge:
         orig_desc += '(Base)'
         merge_desc += '(Merge)'
 
-        # TODO: Is this too cheeky?
         pager_program = pager()
+        # TODO: Is this too cheeky?
         looks_like_less = 'less' in pager_program
         diff_opts = ['--color=always'] if looks_like_less else []
 
@@ -1312,8 +1312,8 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
     # -R: process ANSI color escapes
     # -c: start small files on top line of screen, not bottom line
     less_opts = (
-        re.sub(r'-?[FX]\$?', '', pager_env.get('LESS', ''))
-        + '$Rc'
+        pager_env.get('LESS', '')
+        + ' --+no-init --+quit-if-one-screen --+quit-at-eof --RAW-CONTROL-CHARS --clear-screen'
     )
     pager_env['LESS'] = less_opts
     # force GNU more to pause at EOF
