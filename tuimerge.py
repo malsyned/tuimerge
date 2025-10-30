@@ -983,15 +983,16 @@ class TUIMerge:
             finally:
                 curses.reset_prog_mode()
             with open(editor_file.name, 'r') as f:
-                newlines = f.read().splitlines()
+                edited_lines = f.read().splitlines()
 
-        if editor_lines == newlines:
+        if editor_lines == edited_lines:
             return
+
         # TODO: Should the new prelude and epilogue be calculated from the
         # original prelude and epilogue chunks instead of the edited ones?
-        new_prelude = list(common_prefix(prelude, newlines))
-        new_epilogue = [*reversed([*common_prefix(reversed(epilogue), reversed(newlines))])]
-        edit_text = newlines[len(new_prelude):len(newlines) - len(new_epilogue)]
+        new_prelude = list(common_prefix(prelude, edited_lines))
+        new_epilogue = [*reversed([*common_prefix(reversed(epilogue), reversed(edited_lines))])]
+        edit_text = edited_lines[len(new_prelude):len(edited_lines) - len(new_epilogue)]
         edit = Edit(new_prelude, edit_text, new_epilogue)
         self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
 
