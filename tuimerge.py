@@ -461,6 +461,18 @@ class OutputPane(Pane):
     def _fully_resolved(self) -> bool:
         return self._merge_output.fully_resolved()
 
+    def toggle_resolution(self, conflict: int, resolution: Resolution) -> None:
+        decision = self._merge_output.get_decision(conflict)
+
+        if resolution in decision.resolution:
+            self.resolve(conflict, decision.resolution - resolution)
+        else:
+            try:
+                new_resolution = decision.resolution + resolution
+            except ArithmeticError:
+                new_resolution = resolution
+            self.resolve(conflict, new_resolution)
+
     def resolve(self, conflict: int, resolution: Resolution, edit: Optional[Edit] = None) -> None:
         decision_chunk_index = self._merge_output.decision_chunk_indices[conflict]
         decision = self._merge_output.get_decision(conflict)
@@ -550,6 +562,38 @@ class Resolution(Enum):
     USE_BASE = "Ignore changes from both A and B"
     EDITED = "Edited externally"
 
+    def can_contain(self, item: Resolution) -> bool:
+        if self in (Resolution.USE_A_FIRST, Resolution.USE_B_FIRST):
+            if item in (Resolution.USE_A, Resolution.USE_B):
+                return True
+        return False
+
+    def __contains__(self, item: Resolution) -> bool:
+        if self.can_contain(item):
+            return True
+        if self == item:
+            return True
+        return False
+
+    def __sub__(self, other: Resolution) -> Resolution:
+        if self.can_contain(other):
+            return Resolution.USE_B if other == Resolution.USE_A else Resolution.USE_A
+        if self == other:
+            return Resolution.UNRESOLVED
+        raise ArithmeticError(f"Can't remove {other} from {self}")
+
+    def __add__(self, other: Resolution) -> Resolution:
+        if self == Resolution.USE_A and other == Resolution.USE_B:
+            return Resolution.USE_A_FIRST
+        if self == Resolution.USE_B and other == Resolution.USE_A:
+            return Resolution.USE_B_FIRST
+        if self == other or other in self:
+            return self
+        if self in other:
+            return other
+        if self in (Resolution.UNRESOLVED, Resolution.USE_BASE):
+            return other
+        raise ArithmeticError(f"Can't add {other} to {self}")
 
 class ColorPair(IntEnum):
     DIFF_REMOVED = 1
@@ -1098,15 +1142,15 @@ class TUIMerge:
             elif c == ord('n'):
                 self._select_conflict(self._selected_conflict + 1)
             elif c == ord('a'):
-                self._output_pane.resolve(self._selected_conflict, Resolution.USE_A)
+                self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A)
             elif c == ord('b'):
-                self._output_pane.resolve(self._selected_conflict, Resolution.USE_B)
+                self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_B)
             elif c == ord('A'):
-                self._output_pane.resolve(self._selected_conflict, Resolution.USE_A_FIRST)
+                self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A_FIRST)
             elif c == ord('B'):
-                self._output_pane.resolve(self._selected_conflict, Resolution.USE_B_FIRST)
+                self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_B_FIRST)
             elif c in (ord('i'), curses.KEY_DC):
-                self._output_pane.resolve(self._selected_conflict, Resolution.USE_BASE)
+                self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_BASE)
             elif c in (ord('u'), curses.KEY_BACKSPACE):
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             elif c == ord('e'):
