@@ -1365,7 +1365,7 @@ def getenvtool(*vars: str) -> str | None:
     return None
 
 
-def editor():
+def editor() -> str:
     return (
         getenvtool('VISUAL', 'EDITOR')
         or hunt_for_binary('sensible-editor', 'vi', 'ed')
