@@ -959,42 +959,54 @@ class TUIMerge:
     def _edit_selected_conflict(self) -> None:
         selected_decision = self._merge_output.get_decision(self._selected_conflict)
         decision_chunk_index = self._merge_output.decision_chunk_indices[self._selected_conflict]
-        prelude = self._get_chunk_if_text(decision_chunk_index - 1)
-        epilogue = self._get_chunk_if_text(decision_chunk_index + 1)
-        conflicted_lines: Iterable[str]
-        conflicted_lines = selected_decision.lines()
-        editor_lines = [*prelude, *conflicted_lines, *epilogue]
-        editor_program = editor()
-        with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as editor_file:
-            editor_file.writelines(f'{line}\n' for line in editor_lines)
-            editor_file.close()
-            curses.def_prog_mode()
-            curses.endwin()
-            try:
-                subprocess.run(
-                    editor_program.split(' ')
-                    + [f'+{len(prelude) + 1}', editor_file.name],
-                    encoding=sys.getdefaultencoding(),
-                    check=True
+
+        orig_lines: list[str] = []  # will be filled in on the first iteration
+        while True:
+            prelude = self._get_chunk_if_text(decision_chunk_index - 1)
+            epilogue = self._get_chunk_if_text(decision_chunk_index + 1)
+            editor_lines = [*prelude, *selected_decision.lines(), *epilogue]
+            orig_lines = orig_lines or editor_lines
+            editor_program = editor()
+            with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as editor_file:
+                editor_file.writelines(f'{line}\n' for line in editor_lines)
+                editor_file.close()
+                curses.def_prog_mode()
+                curses.endwin()
+                try:
+                    subprocess.run(
+                        editor_program.split(' ')
+                        + [f'+{len(prelude) + 1}', editor_file.name],
+                        encoding=sys.getdefaultencoding(),
+                        check=True
+                    )
+                except subprocess.CalledProcessError:
+                    #TODO: error dialog
+                    pass
+                finally:
+                    curses.reset_prog_mode()
+                with open(editor_file.name, 'r') as f:
+                    edited_lines = f.read().splitlines()
+
+            if edited_lines == orig_lines:
+                return
+
+            # TODO: Should the new prelude and epilogue be calculated from the
+            # original prelude and epilogue chunks instead of the edited ones?
+            new_prelude = list(common_prefix(prelude, edited_lines))
+            new_epilogue = [*reversed([*common_prefix(reversed(epilogue), reversed(edited_lines))])]
+            edit_text = edited_lines[len(new_prelude):len(edited_lines) - len(new_epilogue)]
+            edit = Edit(new_prelude, edit_text, new_epilogue)
+            self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
+
+            if has_conflict_markers(edited_lines):
+                dialog_result = self.show_dialog(
+                    'The edited resolution contains conflict markers, suggesting it is not fully resolved.\n\nKeep editing?',
+                    '(Y)es/(N)o', inputs='yn', color = ColorPair.DIALOG_WARNING,
+                    esc=False, enter=False
                 )
-            except subprocess.CalledProcessError:
-                #TODO: error dialog
-                pass
-            finally:
-                curses.reset_prog_mode()
-            with open(editor_file.name, 'r') as f:
-                edited_lines = f.read().splitlines()
-
-        if editor_lines == edited_lines:
-            return
-
-        # TODO: Should the new prelude and epilogue be calculated from the
-        # original prelude and epilogue chunks instead of the edited ones?
-        new_prelude = list(common_prefix(prelude, edited_lines))
-        new_epilogue = [*reversed([*common_prefix(reversed(epilogue), reversed(edited_lines))])]
-        edit_text = edited_lines[len(new_prelude):len(edited_lines) - len(new_epilogue)]
-        edit = Edit(new_prelude, edit_text, new_epilogue)
-        self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
+                if dialog_result == 'y':
+                    continue
+            break
 
     def _change_a_dim(self) -> tuple[int, int, int, int]:
         return self._hsplit_row, self._vsplit_col, 0, 0
@@ -1397,11 +1409,18 @@ class Token:
     data: str | None = None
 
 
+A_RE    = re.compile(         r'<<<<<<< (.*)')
+BASE_RE = re.compile(re.escape('|||||||') + r' (.*)')
+B_RE    = re.compile(         r'=======')
+END_RE  = re.compile(         r'>>>>>>> (.*)')
+
+
+def has_conflict_markers(lines: list[str]) -> bool:
+    res = (A_RE, BASE_RE, B_RE, END_RE)
+    return any(re.match(line) for re in res for line in lines)
+
+
 def tokenize_merge(lines: list[str]) -> Generator[Token]:
-    A_RE    = re.compile(         r'<<<<<<< (.*)')
-    BASE_RE = re.compile(re.escape('|||||||') + r' (.*)')
-    B_RE    = re.compile(         r'=======')
-    END_RE  = re.compile(         r'>>>>>>> (.*)')
 
     for i, line in enumerate(lines):
         lineno = i + 1
