@@ -1532,11 +1532,11 @@ def main() -> None:
                         help='can be repeated up to 3 times')
     parser.add_argument('--output', '-o')
     parser.add_argument('--view-only', action='store_true')
-    parser.add_argument('FILE1',
+    parser.add_argument('CURRENT',
                         help='MYFILE in 3-way merge, BASE in 2-way merge')
-    parser.add_argument('FILE2',
+    parser.add_argument('BASE', nargs='?',
                         help='BASE in 3-way merge, YOURFILE in 2-way merge')
-    parser.add_argument('FILE3', nargs='?',
+    parser.add_argument('INCOMING',
                         help='YOURFILE in 3-way merge')
     args = parser.parse_args()
 
@@ -1545,16 +1545,12 @@ def main() -> None:
     labels: list[str] = args.label
     label_iter = iter(labels)
 
-    file1 = Revision(args.FILE1, next(label_iter, None))
-    file2 = Revision(args.FILE2, next(label_iter, None))
-    file3 = Revision(args.FILE3, next(label_iter, None)) if args.FILE3 else None
+    myfile = Revision(args.CURRENT, next(label_iter, None))
+    oldfile = Revision(args.BASE, next(label_iter, None)) if args.BASE else None
+    yourfile = Revision(args.INCOMING, next(label_iter, None))
     outfile = args.output
 
-    if file3:
-        myfile = file1
-        oldfile = file2
-        yourfile = file3
-
+    if oldfile:
         # Promise the type system I know what I'm doing
         assert(myfile.filename and oldfile.filename and yourfile.filename)
         diff3 = do_diff3(
@@ -1569,8 +1565,6 @@ def main() -> None:
             exit()
         merge = MergeParser(diff3).parse()
     else:
-        myfile = file1
-        yourfile = file2
         oldfile = myfile
 
         assert(myfile.filename and yourfile.filename)
