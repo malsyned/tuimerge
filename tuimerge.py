@@ -998,11 +998,16 @@ class TUIMerge:
             edit = Edit(new_prelude, edit_text, new_epilogue)
             self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
 
-            if has_conflict_markers(edited_lines):
+            conflict_markers = has_conflict_markers(edited_lines)
+            if conflict_markers:
+                conflict_text = ''.join(f'    {line}\n' for line in conflict_markers)
                 dialog_result = self.show_dialog(
-                    'The edited resolution contains conflict markers, suggesting it is not fully resolved.\n\nKeep editing?',
-                    '(Y)es/(N)o', inputs='yn', color = ColorPair.DIALOG_WARNING,
-                    esc=False, enter=False
+                    'The edited resolution contains conflict markers:\n'
+                    f'{conflict_text}'
+                    'This suggests the conflict is not fully resolved.\n\n'
+                    'Keep editing?',
+                    '(Y)es/(N)o', inputs='ynq', color = ColorPair.DIALOG_WARNING,
+                    esc=True, enter=False, center=False,
                 )
                 if dialog_result == 'y':
                     continue
@@ -1415,9 +1420,12 @@ B_RE    = re.compile(         r'=======')
 END_RE  = re.compile(         r'>>>>>>> (.*)')
 
 
-def has_conflict_markers(lines: list[str]) -> bool:
-    res = (A_RE, BASE_RE, B_RE, END_RE)
-    return any(re.match(line) for re in res for line in lines)
+def has_conflict_markers(lines: list[str]) -> Iterable[str]:
+    regexes = (A_RE, BASE_RE, B_RE, END_RE)
+    return [
+        line for regex in regexes for line in lines
+        if regex.fullmatch(line)
+    ]
 
 
 def tokenize_merge(lines: list[str]) -> Generator[Token]:
