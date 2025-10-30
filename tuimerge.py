@@ -1334,11 +1334,12 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
             curses.reset_prog_mode()
 
 
-def hunt_for_binary(name: str) -> str | None:
+def hunt_for_binary(*names: str) -> str | None:
     for prefix in ('', '/usr/local/bin/', '/usr/bin/', '/bin/'):
-        found = shutil.which(f'{prefix}{name}')
-        if found:
-            return found
+        for name in names:
+            found = shutil.which(f'{prefix}{name}')
+            if found:
+                return found
     return None
 
 
@@ -1354,7 +1355,7 @@ def getenvtool(*vars: str) -> str | None:
 def editor():
     return (
         getenvtool('VISUAL', 'EDITOR')
-        or hunt_for_binary('vi')
+        or hunt_for_binary('sensible-editor', 'vi', 'ed')
         or 'vi'  # shrug
     )
 
@@ -1362,8 +1363,7 @@ def editor():
 def pager() -> str:
     return (
         getenvtool('PAGER')
-        or hunt_for_binary('less')
-        or hunt_for_binary('more')
+        or hunt_for_binary('sensible-pager', 'less', 'more')
         or 'more'  # shrug
     )
 
