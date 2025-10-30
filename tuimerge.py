@@ -1352,6 +1352,10 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
             curses.reset_prog_mode()
 
 
+def CTRL(c: str) -> int:
+    return ord(c.upper()) - ord('A') + 1
+
+
 def hunt_for_binary(*names: str) -> str | None:
     for prefix in ('', '/usr/local/bin/', '/usr/bin/', '/bin/'):
         for name in names:
