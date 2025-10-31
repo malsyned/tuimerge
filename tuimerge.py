@@ -548,6 +548,7 @@ class OutputPane(Pane):
         else:
             self._color = self._unresolved_color
         self._draw_merge_output()
+        self.scroll_to_conflict(conflict)
         self._draw()
 
     def _draw_merge_output(self) -> None:
