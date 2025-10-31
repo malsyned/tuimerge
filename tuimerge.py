@@ -454,6 +454,14 @@ class OutputPane(Pane):
     def scroll_to_conflict(self, conflict: int, select: bool = True) -> None:
         if select:
             self._select_conflict(conflict)
+        # TODO:
+        # * make sure the bottom of the conflict is visible if the conflict is
+        #   half off the screen.
+        # * only center-jump if any other alternative would still scroll the
+        #   screen until no currently-visible line is still visible
+        # * Should there be a mode where centering never occurs and it only ever
+        #   scrolls far enough to show the conflict? This seems like it would
+        #   feel better when called from resolve()
         content_window_height, _ = self._content_panel.window().getmaxyx()
         visible_lines = range(self._vscroll, self._vscroll + content_window_height)
         lineno, decision = self._selected_conflict_and_line(conflict)
