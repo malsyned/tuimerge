@@ -1006,10 +1006,10 @@ class TUIMerge:
                     f'{conflict_text}'
                     'This suggests the conflict is not fully resolved.\n\n'
                     'Keep editing?',
-                    '(Y)es/(N)o', inputs='ynq', color = ColorPair.DIALOG_WARNING,
+                    '(Y)es/(N)o', inputs='ynqe', color = ColorPair.DIALOG_WARNING,
                     esc=True, enter=False, center=False,
                 )
-                if dialog_result == 'y':
+                if dialog_result in ['y', 'e']:
                     continue
             break
 
