@@ -443,7 +443,7 @@ class OutputPane(Pane):
         cur_conflict = 0
         if select:
             self._select_conflict(conflict)
-        for e in self._merge_output.chunks:
+        for e in self._merge_output.edited_chunks():
             if isinstance(e, Decision):
                 if conflict == cur_conflict:
                     pane_height, _ = self._content_panel.window().getmaxyx()
