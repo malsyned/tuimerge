@@ -438,25 +438,35 @@ class OutputPane(Pane):
         self._selected_conflict = conflict
         self._draw_merge_output()
 
-    def scroll_to_conflict(self, conflict: int, select: bool = True) -> None:
+    def _selected_conflict_and_line(self, conflict: int) -> tuple[int, Decision]:
+        selected_decision_chunk_index = self._merge_output.decision_chunk_indices[conflict]
         lineno = 0
-        cur_conflict = 0
+        for i, c in enumerate(self._merge_output.edited_chunks()):
+            if isinstance(c, Decision):
+                if i < selected_decision_chunk_index:
+                    lineno += c.linecount
+                else:
+                    return lineno, self._merge_output.get_decision(conflict)
+            else:
+                lineno += len(c)
+        raise IndexError(f'No conflict found with index {conflict}')
+
+    def scroll_to_conflict(self, conflict: int, select: bool = True) -> None:
         if select:
             self._select_conflict(conflict)
-        for e in self._merge_output.edited_chunks():
-            if isinstance(e, Decision):
-                if conflict == cur_conflict:
-                    pane_height, _ = self._content_panel.window().getmaxyx()
-                    conflict_height = e.linecount
-                    if conflict_height < pane_height:
-                        lineno -= (pane_height - conflict_height) // 2
-                    self.scroll_vert_to(lineno)
-                    break
-                else:
-                    lineno += e.linecount
-                    cur_conflict += 1
-            else:
-                lineno += len(e)
+        content_window_height, _ = self._content_panel.window().getmaxyx()
+        visible_lines = range(self._vscroll, self._vscroll + content_window_height)
+        lineno, decision = self._selected_conflict_and_line(conflict)
+        if lineno in visible_lines:
+            lineno = self._vscroll  # don't scroll, just repaint
+        elif lineno + decision.linecount - 1 in visible_lines:
+            pass  # scroll just far enough
+        else:
+            pane_height, _ = self._content_panel.window().getmaxyx()
+            conflict_height = decision.linecount
+            if conflict_height < pane_height:
+                lineno -= (pane_height - conflict_height) // 2
+        self.scroll_vert_to(lineno)
 
     def _fully_resolved(self) -> bool:
         return self._merge_output.fully_resolved()
@@ -943,7 +953,10 @@ class TUIMerge:
 
         lines, _ = self._stdscr.getmaxyx()
         max_change_height = max(pane.preferred_height for pane in self._change_panes)
+        old_hsplit = self._hsplit_row
         new_hsplit = min(max_change_height, lines // 2)
+        hsplit_change = new_hsplit - old_hsplit
+        self._output_pane.scroll_vert(hsplit_change)
         self._move_hsplit_to(new_hsplit)
         self._output_pane.scroll_to_conflict(self._selected_conflict)
 
