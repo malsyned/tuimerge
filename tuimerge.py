@@ -1613,17 +1613,23 @@ def flag_list(flag: str, args: list[str]) -> list[str]:
     return list(chain.from_iterable(zip(repeat(flag), args)))
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--label', '-L', action='append', default=[],
-                        help='can be repeated up to 3 times')
-    parser.add_argument('--output', '-o')
-    parser.add_argument('--view-only', action='store_true')
+    parser = argparse.ArgumentParser(
+        prog='tuimerge',
+        description='Terminal-based interactive 2-way/3-way merge tool'
+    )
+    #TODO: Add epilog about how to configure for git mergetool & pacdiff
+    parser.add_argument('-o', '--output',
+                        help='write merged result to the given file instead of BASE')
+    parser.add_argument('-n', '--view-only', action='store_true',
+                        help='display the raw diff or zdiff3 output instead of opening tuimerge; for pacdiff $DIFFPROG compatibility')
+    parser.add_argument('-L', '--label', action='append', default=[],
+                        help='use LABEL instead of the file name (can be repeated up to 3 times)')
     parser.add_argument('CURRENT',
-                        help='MYFILE in 3-way merge, BASE in 2-way merge')
+                        help='new local revision of a file, a.k.a. "MYFILE"')
     parser.add_argument('BASE', nargs='?',
-                        help='BASE in 3-way merge, YOURFILE in 2-way merge')
+                        help='original file from which CURRENT and INCOMING diverged, a.k.a. "OLDFILE"')
     parser.add_argument('INCOMING',
-                        help='YOURFILE in 3-way merge')
+                        help='incoming revision of a file, a.k.a. "YOURFILE"')
     args = parser.parse_args()
 
     view_only = args.view_only or not sys.stdout.isatty()
