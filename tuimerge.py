@@ -124,18 +124,20 @@ class Pane:
         ncols: int,
         begin_line: int,
         begin_col: int,
+        gutter_width: int = 1
     ):
         self._color = color
         self._set_size_attrs(nlines, ncols, begin_line, begin_col)
         self._hscroll = 0
         self._vscroll = 0
         self._focused = False
+        self._gutter_width = gutter_width
 
         self._win, title, gutter, content = self._create_wins()
         self._title_panel = panel.new_panel(title)
         self._gutter_panel = panel.new_panel(gutter)
         self._content_panel = panel.new_panel(content)
-        self._gutter_pad = curses.newpad(1, 1)
+        self._gutter_pad = curses.newpad(1, self._gutter_width)
         self._content_pad = curses.newpad(1, 1)
 
     def _set_size_attrs(self, nlines: int, ncols: int, begin_line: int, begin_col: int) -> None:
@@ -147,8 +149,8 @@ class Pane:
     def _create_wins(self) -> tuple[curses.window, curses.window, curses.window, curses.window]:
         win = curses.newwin(self._nlines, self._ncols, self._begin_line, self._begin_col)
         title = win.derwin(1, self._ncols, 0, 0)
-        gutter = win.derwin(self._nlines - 1, 1, 1, 0)
-        content = win.derwin(self._nlines - 1, self._ncols - 1, 1, 1)
+        gutter = win.derwin(self._nlines - 1, self._gutter_width, 1, 0)
+        content = win.derwin(self._nlines - 1, self._ncols - self._gutter_width, 1, self._gutter_width)
         return win, title, gutter, content
 
     @property
@@ -215,7 +217,7 @@ class Pane:
 
     def _resize_content(self, nlines: int, ncols: int) -> None:
         self._content_pad.resize(nlines, ncols)
-        self._gutter_pad.resize(nlines, 1)
+        self._gutter_pad.resize(nlines, self._gutter_width)
 
     def resize(self, nlines: int, ncols: int, begin_line: int, begin_col: int) -> None:
         self._set_size_attrs(nlines, ncols, begin_line, begin_col)
@@ -429,7 +431,7 @@ class OutputPane(Pane):
         self._resolved_color = resolved_color
         self._unresolved_color = unresolved_color
 
-        super().__init__(unresolved_color, nlines, ncols, begin_line, begin_col)
+        super().__init__(unresolved_color, nlines, ncols, begin_line, begin_col, gutter_width=2)
         self._resize_content(merge_output.height, merge_output.width)
         merge_output.draw(self)
         self._draw()
@@ -725,38 +727,45 @@ class Decision:
         prefix: str,
         selected: bool,
         lineno: int,
+        start_chunk: bool = True,
         end_chunk: bool = True,
     ) -> int:
         gutter_attr = curses.A_STANDOUT if selected else 0
+        pane_attr = curses.A_BOLD if selected else 0
         if text:
             for i, line in enumerate(text):
                 if i == 0:
-                    if not prefix or prefix == ' ':
-                        this_prefix = curses.ACS_ULCORNER
-                    else:
-                        this_prefix = ord(prefix)
-                elif i == len(text) - 1 and end_chunk:
-                    this_prefix = curses.ACS_LLCORNER
+                    this_prefix = prefix
                 else:
-                    this_prefix = curses.ACS_VLINE
-                noerror(pane.gutter.addch, lineno, 0, this_prefix, color.attr | gutter_attr)
-                noerror(pane.content.addstr, lineno, 0, line, color.attr | curses.A_BOLD)
+                    this_prefix = ' '
+                if start_chunk and end_chunk and len(text) <= 1:
+                    bracket = ord(':')
+                elif i == 0 and start_chunk:
+                    bracket = curses.ACS_ULCORNER
+                elif i == len(text) - 1 and end_chunk:
+                    bracket = curses.ACS_LLCORNER
+                else:
+                    bracket = curses.ACS_VLINE
+                noerror(pane.gutter.addch, lineno, 0, ord(this_prefix), color.attr | gutter_attr)
+                noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
+                noerror(pane.content.addstr, lineno, 0, line, color.attr | pane_attr)
                 lineno += 1
         else:
             noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | gutter_attr)
-            pane.content.attron(color.attr | curses.A_BOLD)
+            noerror(pane.gutter.addch, lineno, 1, ord(':'), color.attr | gutter_attr)
+            pane.content.attron(color.attr | pane_attr)
             pane.content.hline(lineno, 0, 0, pane.width)
-            pane.content.attroff(color.attr | curses.A_BOLD)
+            pane.content.attroff(color.attr | pane_attr)
             lineno += 1
         return lineno
 
     def _draw_a(self, pane: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
         prefix = 'A'
-        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, selected, lineno, end_chunk=end_chunk)
+        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
 
     def _draw_b(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
         prefix = 'B'
-        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, selected, lineno, end_chunk=end_chunk)
+        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
 
     def _draw_base(self, window: Pane, color: ColorPair, p: str, selected: bool, lineno: int) -> int:
         return self._draw_with_gutter(window, self.conflict.base, color, p, selected, lineno)
