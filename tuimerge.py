@@ -732,30 +732,27 @@ class Decision:
     ) -> int:
         gutter_attr = curses.A_STANDOUT if selected else 0
         pane_attr = curses.A_BOLD if selected else 0
-        if text:
-            for i, line in enumerate(text):
-                if i == 0:
-                    this_prefix = prefix
-                else:
-                    this_prefix = ' '
-                if start_chunk and end_chunk and len(text) <= 1:
-                    bracket = ord(':')
-                elif i == 0 and start_chunk:
-                    bracket = curses.ACS_ULCORNER
-                elif i == len(text) - 1 and end_chunk:
-                    bracket = curses.ACS_LLCORNER
-                else:
-                    bracket = curses.ACS_VLINE
-                noerror(pane.gutter.addch, lineno, 0, ord(this_prefix), color.attr | gutter_attr)
-                noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
+        for i, line in enumerate(text or ['']):  # loop at least once for empty chunk hardrule
+            if i == 0:
+                this_prefix = prefix
+            else:
+                this_prefix = ' '
+            if start_chunk and end_chunk and len(text) <= 1:
+                bracket = ord(':')
+            elif i == 0 and start_chunk:
+                bracket = curses.ACS_ULCORNER
+            elif i == len(text) - 1 and end_chunk:
+                bracket = curses.ACS_LLCORNER
+            else:
+                bracket = curses.ACS_VLINE
+            noerror(pane.gutter.addch, lineno, 0, ord(this_prefix), color.attr | gutter_attr)
+            noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
+            if text:
                 noerror(pane.content.addstr, lineno, 0, line, color.attr | pane_attr)
-                lineno += 1
-        else:
-            noerror(pane.gutter.addch, lineno, 0, prefix, color.attr | gutter_attr)
-            noerror(pane.gutter.addch, lineno, 1, ord(':'), color.attr | gutter_attr)
-            pane.content.attron(color.attr | pane_attr)
-            pane.content.hline(lineno, 0, 0, pane.width)
-            pane.content.attroff(color.attr | pane_attr)
+            else:
+                pane.content.attron(color.attr | pane_attr)
+                pane.content.hline(lineno, 0, 0, pane.width)
+                pane.content.attroff(color.attr | pane_attr)
             lineno += 1
         return lineno
 
