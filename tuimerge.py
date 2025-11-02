@@ -668,6 +668,8 @@ class ColorPair(IntEnum):
     def init(cls) -> None:
         if not curses.has_colors():
             return
+        # ordinary blue is garish on almost every terminal emulator I've tried,
+        # so use bright blue everywhere if possible.
         bright = 8 if curses.COLORS > 8 else 0
         curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, -1)
         curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, -1)
