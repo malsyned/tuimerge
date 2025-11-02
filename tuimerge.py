@@ -560,14 +560,14 @@ class OutputPane(Pane):
                 if result != 'y':
                     return
 
-            try:
-                self._merge_output.edited_text_chunks[decision_chunk_index - 1] = None
-            except IndexError:
-                pass
-            try:
-                self._merge_output.edited_text_chunks[decision_chunk_index + 1] = None
-            except IndexError:
-                pass
+                try:
+                    self._merge_output.edited_text_chunks[decision_chunk_index - 1] = None
+                except IndexError:
+                    pass
+                try:
+                    self._merge_output.edited_text_chunks[decision_chunk_index + 1] = None
+                except IndexError:
+                    pass
 
         decision.resolution = resolution
         self._resize_content(self._merge_output.height, self._merge_output.width)
