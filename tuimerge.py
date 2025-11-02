@@ -742,7 +742,7 @@ class Decision:
         start_chunk: bool = True,
         end_chunk: bool = True,
     ) -> int:
-        gutter_attr = curses.A_STANDOUT if selected else 0
+        gutter_attr = curses.A_STANDOUT if selected else curses.A_BOLD
         pane_attr = curses.A_BOLD if selected else 0
         for i, line in enumerate(text or ['']):  # loop at least once for empty chunk hardrule
             if i == 0:
