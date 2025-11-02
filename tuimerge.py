@@ -309,12 +309,15 @@ class ChangePane(Pane):
             data = line[1:]
             if prefix in ('+', '>'):
                 attr = ColorPair.DIFF_ADDED.attr
+                content_attr = curses.A_BOLD
             elif prefix in ('-', '<'):
+                content_attr = curses.A_BOLD
                 attr = ColorPair.DIFF_REMOVED.attr
             else:
                 attr = curses.A_NORMAL
+                content_attr = curses.A_NORMAL
             noerror(self._gutter_pad.addch, i, 0, prefix, attr)
-            noerror(self._content_pad.addstr, i, 0, data, attr | curses.A_BOLD)
+            noerror(self._content_pad.addstr, i, 0, data, attr | content_attr)
         self._draw()
 
     def _draw_title(self) -> None:
