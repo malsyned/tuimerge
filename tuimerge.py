@@ -490,6 +490,20 @@ class OutputPane(Pane):
                 lineno -= (pane_height - conflict_height) // 2
         self.scroll_vert_to(lineno)
 
+    def conflict_is_visible(self, conflict: int) -> bool:
+        content_window_height, _ = self._content_panel.window().getmaxyx()
+        try:
+            lineno, decision = self._selected_conflict_and_line(conflict)
+        except KeyError:
+            return False
+        visible_lines = range(self._vscroll, self._vscroll + content_window_height)
+        return lineno in visible_lines or lineno + decision.linecount - 1 in visible_lines
+
+    def visible_conflicts(self) -> Generator[int]:
+        for i in self._merge_output.decision_chunk_indices.keys():
+            if self.conflict_is_visible(i):
+                yield i
+
     def _fully_resolved(self) -> bool:
         return self._merge_output.fully_resolved()
 
@@ -963,6 +977,24 @@ class TUIMerge:
         self._move_hsplit_to(new_hsplit)
         self._output_pane.scroll_to_conflict(self._selected_conflict)
 
+    def _select_next_or_page_down(self) -> None:
+        selected_seen = False
+        next_conflict = self._selected_conflict + 1
+        if self._output_pane.conflict_is_visible(next_conflict):
+            self._select_conflict(next_conflict)
+        else:
+            visible_conflicts = [*self._output_pane.visible_conflicts()]
+            selected_seen = self._selected_conflict in visible_conflicts
+            if visible_conflicts and not selected_seen:
+                self._select_conflict(visible_conflicts[0])
+            else:
+                self._output_pane.scroll_page(1)
+                visible_conflicts = [*self._output_pane.visible_conflicts()]
+                if selected_seen and self._selected_conflict in visible_conflicts:
+                    return
+                if visible_conflicts:
+                    self._select_conflict(visible_conflicts[0])
+
     def _get_chunk_if_text(self, i: int) -> list[str]:
         try:
             chunk = self._merge_output.edited_chunk(i)
@@ -1168,10 +1200,12 @@ class TUIMerge:
                 self._panes[self._focused].scroll_horiz(-2)
             elif c in (curses.KEY_RIGHT, ord('l')):
                 self._panes[self._focused].scroll_horiz(2)
-            elif c in (curses.KEY_NPAGE, ord(' ')):
+            elif c == curses.KEY_NPAGE:
                 self._panes[self._focused].scroll_page(1)
             elif c == curses.KEY_PPAGE:
                 self._panes[self._focused].scroll_page(-1)
+            elif c == ord(' '):
+                self._select_next_or_page_down()
             elif c in (curses.KEY_SR, ord('K'), ord('-')):
                 self._move_hsplit(-1)
             elif c in (curses.KEY_SF, ord('J'), ord('='), ord('+')):
