@@ -1300,7 +1300,7 @@ class TUIMerge:
             'U        Unresolve conflict',
             'E        Open conflict in external editor',
             'D        View diff between Base and Merge',
-            'X        Swap resolution order'
+            'X        Swap resolution order',
             'S        Save changes and quit',
             'Q        Quit without saving changes',
             'Tab      Cycle focus between panes',
