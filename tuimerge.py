@@ -1385,13 +1385,14 @@ class TUIMerge:
 def do_pager(file: str, pause_curses: bool = True) -> None:
     ## work around some common pager quirks ##
     pager_env = os.environ.copy()
-    # -R: process ANSI color escapes
-    # -c: start small files on top line of screen, not bottom line
-    less_opts = (
-        pager_env.get('LESS', '')
-        + ' --+no-init --+quit-if-one-screen --+quit-at-eof --RAW-CONTROL-CHARS --clear-screen'
-    )
-    pager_env['LESS'] = less_opts
+    pager_env['LESS'] = ' '.join([
+        pager_env.get('LESS', ''),
+        '--+no-init',
+        '--+quit-if-one-screen',  # scroll single-screen contents to top
+        '--+quit-at-eof',
+        '--RAW-CONTROL-CHARS',
+        '--clear-screen',
+    ])
     # force GNU more to pause at EOF
     pager_env['POSIXLY_CORRECT'] = '1'
 
