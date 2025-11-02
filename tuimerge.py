@@ -1145,7 +1145,6 @@ class TUIMerge:
         noerror(curses.curs_set, 0)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
-        term_enable_mouse_drag()
 
         self._change_panes = [
             ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
