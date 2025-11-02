@@ -14,8 +14,8 @@ import subprocess
 import sys
 from tempfile import NamedTemporaryFile
 import textwrap
-from types import MappingProxyType, TracebackType
-from typing import Callable, Generator, Iterable, Literal, NoReturn, Optional, Self, Sequence
+from types import MappingProxyType
+from typing import Callable, Concatenate, Generator, Iterable, Literal, NoReturn, Optional, Sequence
 
 # display 3 windows:
 #     top left = new A hunk with diff from original
@@ -871,30 +871,6 @@ class TUIMerge:
         self._hsplit = .5
         self._dragging: bool | Literal['hsplit'] | Literal['vsplit'] = False
 
-    def __enter__(self) -> Self:
-        self._stdscr = curses.initscr()
-        curses.start_color()
-        noerror(curses.use_default_colors)
-        ColorPair.init()
-        curses.cbreak()
-        curses.noecho()
-        noerror(curses.curs_set, 0)
-        self._stdscr.keypad(True)
-        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
-        curses.mouseinterval(0)
-        term_enable_mouse_drag()
-
-        return self
-
-    def __exit__(
-        self,
-        type: type[BaseException] | None,
-        value: BaseException | None,
-        traceback: TracebackType | None
-    ) -> None:
-        term_enable_mouse_drag(False)
-        curses.endwin()
-
     @property
     def _vsplit_col(self) -> int:
         _, cols = self._stdscr.getmaxyx()
@@ -1118,7 +1094,15 @@ class TUIMerge:
         return chr(c)
 
 
-    def run(self) -> None:
+    def run(self, stdscr: curses.window) -> None:
+        self._stdscr = stdscr
+        noerror(curses.use_default_colors)
+        ColorPair.init()
+        noerror(curses.curs_set, 0)
+        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        curses.mouseinterval(0)
+        term_enable_mouse_drag()
+
         self._change_panes = [
             ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
             ChangePane(self._files[1], 'B', 'Incoming', ColorPair.B, *self._change_b_dim()),
@@ -1640,6 +1624,21 @@ def flag_list(flag: str, args: list[str]) -> list[str]:
     '''return args with flag inserted before every element'''
     return list(chain.from_iterable(zip(repeat(flag), args)))
 
+
+def wrapper[**P](
+    func: Callable[Concatenate[curses.window, P], None],
+    *args: P.args, **kwargs: P.kwargs
+) -> None:
+    def wrapping(stdscr: curses.window) -> None:
+        try:
+            term_enable_mouse_drag()
+            func(stdscr, *args, **kwargs)
+        finally:
+            term_enable_mouse_drag(False)
+
+    curses.wrapper(wrapping)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog='tuimerge',
@@ -1708,8 +1707,7 @@ def main() -> None:
         merge = merge_from_diff(diff2, mine_label, mine, yours_label, yours)
 
     tuimerge = TUIMerge(myfile, yourfile, oldfile, merge, outfile=outfile)
-    with  tuimerge:
-        tuimerge.run()
+    wrapper(tuimerge.run)
 
     exit()
 
