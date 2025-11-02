@@ -1203,8 +1203,6 @@ class TUIMerge:
                 self._panes[self._focused].scroll_page(1)
             elif c == curses.KEY_PPAGE:
                 self._panes[self._focused].scroll_page(-1)
-            elif c == ord(' '):
-                self._select_next_or_page_down()
             elif c in (curses.KEY_SR, ord('K'), ord('-')):
                 self._move_hsplit(-1)
             elif c in (curses.KEY_SF, ord('J'), ord('='), ord('+')):
@@ -1223,6 +1221,8 @@ class TUIMerge:
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n'):
                 self._select_conflict(self._selected_conflict + 1)
+            elif c == ord(' '):
+                self._select_next_or_page_down()
             elif c == ord('a'):
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A)
             elif c == ord('b'):
