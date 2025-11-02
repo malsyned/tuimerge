@@ -1292,6 +1292,7 @@ class TUIMerge:
         help_text = '\n'.join([
             'N        Jump to next conflict',
             'P        Jump to previous conflict',
+            'Space    Select visible conflict or page down',
             'A        ' + Resolution.USE_A.value,
             'B        ' + Resolution.USE_B.value,
             'Shift+A  ' + Resolution.USE_A_FIRST.value,
