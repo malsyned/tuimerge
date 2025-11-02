@@ -15,7 +15,16 @@ import sys
 from tempfile import NamedTemporaryFile
 import textwrap
 from types import MappingProxyType
-from typing import Callable, Concatenate, Generator, Iterable, Literal, NoReturn, Optional, Sequence
+from typing import (
+    Callable,
+    Concatenate,
+    Generator,
+    Iterable,
+    Literal,
+    NoReturn,
+    Optional,
+    Sequence,
+)
 
 # display 3 windows:
 #     top left = new A hunk with diff from original
