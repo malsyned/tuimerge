@@ -16,6 +16,7 @@ from tempfile import NamedTemporaryFile
 import textwrap
 from types import MappingProxyType
 from typing import (
+    IO,
     Callable,
     Concatenate,
     Generator,
@@ -24,6 +25,7 @@ from typing import (
     NoReturn,
     Optional,
     Sequence,
+    overload,
 )
 
 # display 3 windows:
@@ -284,14 +286,10 @@ class ChangePane(Pane):
             tmpnew.close()
 
             #TODO: Consider supporting non-unified diffs as well
-            diff_result = subprocess.run(
-                f'diff --text --unified={len(orig) + len(new)}'.split(' ')
-                + ['--', tmporig.name, tmpnew.name],
-                stdout=subprocess.PIPE,
-                encoding=sys.getdefaultencoding()
-            )
+            diff_output = do_diff2(
+                tmporig.name, tmpnew.name, context=len(orig) + len(new))
         contents = [
-            line for line in diff_result.stdout.splitlines()
+            line for line in diff_output
             if (
                 any(line.startswith(c) for c in '+-<> ')
                 and not any(line.startswith(p) for p in['---', '+++'])
@@ -1436,7 +1434,6 @@ class TUIMerge:
         pager_program = pager()
         # TODO: Is this too cheeky?
         looks_like_less = 'less' in pager_program
-        diff_opts = ['--color=always'] if looks_like_less else []
 
         with (
             NamedTemporaryFile('w+', delete_on_close=False) as merged_file,
@@ -1446,13 +1443,9 @@ class TUIMerge:
             merged_file.close()
 
             try:
-                subprocess.run(
-                    'diff --text --unified'.split(' ')
-                    + diff_opts
-                    + ['--label', orig_desc, '--label', merge_desc]
-                    + ['--', orig_rev.filename, merged_file.name],
-                    stdout=diff_file,
-                    encoding=sys.getdefaultencoding()
+                do_diff2(
+                    orig_rev.filename, merged_file.name, diff_file,
+                    labels=[orig_desc, merge_desc], color=looks_like_less
                 )
             except subprocess.CalledProcessError:
                 # TODO: error dialog
@@ -1739,16 +1732,59 @@ def do_diff3(
     )
     return diff3_result.stdout.splitlines()
 
-
-def do_diff2(myfile: str, yourfile: str, labels: list[str] = []) -> list[str]:
+@overload
+def do_diff2(
+    myfile: str,
+    yourfile: str,
+    outfile: IO[str],
+    context: Optional[int] = None,
+    labels: list[str] = [],
+    color: bool = False,
+) -> None:
+    ...
+@overload
+def do_diff2(
+    myfile: str,
+    yourfile: str,
+    outfile: Optional[None] = None,
+    context: Optional[int] = None,
+    labels: list[str] = [],
+    color: bool = False,
+) -> list[str]:
+    ...
+def do_diff2(
+    myfile: str,
+    yourfile: str,
+    outfile: Optional[IO[str]] = None,
+    context: Optional[int] = None,
+    labels: list[str] = [],
+    color: bool = False,
+) -> list[str] | None:
+        color_opts = ['--color=always'] if color else []
+        context_args = ['-u'] if context is None else ['-U', str(context)]
         label_args = flag_list('--label', labels)
+        stdout = outfile or subprocess.PIPE
         diff_result = subprocess.run(
-            'diff --text -U0'.split(' ')
-            + label_args
-            + ['--', myfile, yourfile],
-            stdout=subprocess.PIPE,
+            [
+                'diff', *context_args, *label_args, *color_opts,
+                '--', myfile, yourfile
+            ],
+            stdout=stdout, stderr=subprocess.PIPE,
             encoding=sys.getdefaultencoding()
         )
+        if diff_result.returncode > 1:
+            if outfile:
+                outfile.seek(0)
+            # Retry with only POSIX arguments
+            diff_result = subprocess.run(
+                ['diff', *context_args, myfile, yourfile],
+                stdout=stdout, stderr=subprocess.PIPE,
+                encoding=sys.getdefaultencoding()
+            )
+            if diff_result.returncode > 1:
+                diff_result.check_returncode()
+        if outfile:
+            return None
         return diff_result.stdout.splitlines()
 
 
@@ -1823,7 +1859,7 @@ def main() -> None:
             mine = mf.read().splitlines()
             yours = yf.read().splitlines()
 
-        diff2 = do_diff2(myfile.filename, yourfile.filename, labels)
+        diff2 = do_diff2(myfile.filename, yourfile.filename, labels=labels, context=0)
 
         if view_only:
             with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
