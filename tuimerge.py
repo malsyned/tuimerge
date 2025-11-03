@@ -1517,8 +1517,12 @@ def hunt_for_binary(*names: str) -> str | None:
     return None
 
 
-def getenvtool(*vars: str) -> str | None:
-    for prefix in ('TUIMERGE_', 'MERGE_', ''):
+def getenvtool(*vars: str, try_prefixes: Optional[bool] = True) -> str | None:
+    if try_prefixes:
+        prefixes = ['TUIMERGE_', 'MERGE_', '']
+    else:
+        prefixes = ['']
+    for prefix in prefixes:
         for var in vars:
             found = os.getenv(f'{prefix}{var}')
             if found:
@@ -1734,18 +1738,39 @@ def _merge_from_diff(
         yield rest
 
 
+def diff3() -> str:
+    envtool = getenvtool('TUIMERGE_DIFF3', try_prefixes=False)
+    if envtool:
+        return envtool
+    git = hunt_for_binary('git')
+    if git:
+        return f'{git} merge-file -p --zdiff3'
+    diff3 = hunt_for_binary('diff3') or 'diff'
+    return f'{diff3} -m'
+
+
 def do_diff3(
     myfile: str, oldfile: str, yourfile: str, labels: list[str] = []
 ) -> list[str]:
+    diff3_prog = diff3()
     label_args = flag_list('-L', labels)
     diff3_result = subprocess.run(
-        'git merge-file -p --zdiff3'.split(' ')
+        diff3_prog.split(' ')
         + label_args
         + ['--', myfile, oldfile, yourfile],
         stdout=subprocess.PIPE,
         encoding=sys.getdefaultencoding(),
     )
     return diff3_result.stdout.splitlines()
+
+
+def diff2() -> str:
+    return (
+        getenvtool('TUIMERGE_DIFF', try_prefixes=False)
+        or hunt_for_binary('diff')
+        or 'diff'
+    )
+
 
 @overload
 def do_diff2(
@@ -1775,13 +1800,14 @@ def do_diff2(
     labels: list[str] = [],
     color: bool = False,
 ) -> list[str] | None:
+        diff2_prog = diff2().split(' ')
         color_opts = ['--color=always'] if color else []
-        context_args = ['-u'] if context is None else ['-U', str(context)]
+        context_arg = '-u' if context is None else f'-U{context}'
         label_args = flag_list('--label', labels)
         stdout = outfile or subprocess.PIPE
         diff_result = subprocess.run(
             [
-                'diff', *context_args, *label_args, *color_opts,
+                *diff2_prog, context_arg, *label_args, *color_opts,
                 '--', myfile, yourfile
             ],
             stdout=stdout, stderr=subprocess.PIPE,
@@ -1792,7 +1818,7 @@ def do_diff2(
                 outfile.seek(0)
             # Retry with only POSIX arguments
             diff_result = subprocess.run(
-                ['diff', *context_args, myfile, yourfile],
+                [*diff2_prog, context_arg, myfile, yourfile],
                 stdout=stdout, stderr=subprocess.PIPE,
                 encoding=sys.getdefaultencoding()
             )
