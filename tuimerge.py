@@ -1476,6 +1476,7 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
         '--+quit-at-eof',
         '--RAW-CONTROL-CHARS',
         '--clear-screen',
+        '--no-lessopen',
     ])
     # force GNU more to pause at EOF
     pager_env['POSIXLY_CORRECT'] = '1'
