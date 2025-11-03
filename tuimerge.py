@@ -1123,6 +1123,13 @@ class TUIMerge:
                     edited_lines = f.read().splitlines()
 
             if edited_lines == orig_lines:
+                # FIXME: BUG: If the file is edited twice, and the second time
+                # is back to the original text, the first edit will be left as
+                # the resolution, rather than discarding the resolution
+                # entirely.
+                #
+                # Can this fix be subsumed by the edit-matches-other-resolution
+                # improvement I've been contemplating?
                 return
 
             # TODO: Should the new prelude and epilogue be calculated from the
