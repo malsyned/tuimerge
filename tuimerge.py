@@ -1270,7 +1270,7 @@ class TUIMerge:
                     color=dialog_color
                 )
                 if result == 'y':
-                    return
+                    exit(1)  # indicate to git that the merge wasn't completed
             elif c == ord('\t'):
                 self._set_focus((self._focused + 1) % 3)
             elif c == curses.KEY_BTAB:
@@ -1331,7 +1331,7 @@ class TUIMerge:
             #     self.show_dialog('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
             elif c in (ord('w'), ord('s')):
                 if self._save():
-                    return
+                    exit(0)  # indicate to git that merge was successful
 
             elif c == curses.KEY_MOUSE:
                 _, mcol, mrow, _, bstate = curses.getmouse()
