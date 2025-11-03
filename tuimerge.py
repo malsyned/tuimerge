@@ -1859,7 +1859,10 @@ def main() -> None:
             mine = mf.read().splitlines()
             yours = yf.read().splitlines()
 
-        diff2 = do_diff2(myfile.filename, yourfile.filename, labels=labels, context=0)
+        diff2 = do_diff2(
+            myfile.filename, yourfile.filename,
+            labels=labels, context=None if view_only else 0
+        )
 
         if view_only:
             with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
