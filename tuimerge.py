@@ -422,6 +422,28 @@ def noerror[**P, T](f: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> Non
         pass
 
 
+class ConflictVisibility(Enum):
+    ABOVE_WINDOW = auto()
+    PARTIALLY_ABOVE_WINDOW = auto()
+    WITHIN_WINDOW = auto()
+    OVERFLOWS_WINDOW = auto()
+    PARTIALLY_BELOW_WINDOW = auto()
+    BELOW_WINDOW = auto()
+
+    @property
+    def is_visible(self) -> bool:
+        return self not in (
+            ConflictVisibility.ABOVE_WINDOW,
+            ConflictVisibility.BELOW_WINDOW
+        )
+
+
+class ScrollSnap(Enum):
+    TOP = auto()
+    CENTER = auto()
+    BOTTOM = auto()
+
+
 class OutputPane(Pane):
     def __init__(
         self,
@@ -448,7 +470,11 @@ class OutputPane(Pane):
         merge_output.draw(self)
         self._draw()
 
-    def _select_conflict(self, conflict: int) -> None:
+    @property
+    def selected_conflict(self) -> int:
+        return self._selected_conflict
+
+    def select_conflict(self, conflict: int) -> None:
         self._selected_conflict = conflict
         self._draw_merge_output()
 
@@ -465,39 +491,54 @@ class OutputPane(Pane):
                 lineno += len(c)
         raise IndexError(f'No conflict found with index {conflict}')
 
-    def scroll_to_conflict(self, conflict: int, select: bool = True) -> None:
-        if select:
-            self._select_conflict(conflict)
-        # TODO:
-        # * make sure the bottom of the conflict is visible if the conflict is
-        #   half off the screen.
-        # * only center-jump if any other alternative would still scroll the
-        #   screen until no currently-visible line is still visible
-        # * Should there be a mode where centering never occurs and it only ever
-        #   scrolls far enough to show the conflict? This seems like it would
-        #   feel better when called from resolve()
+    def scroll_to_conflict(
+        self,
+        conflict: int,
+        scroll_hints: tuple[ScrollSnap, ScrollSnap],
+    ) -> None:
+        scroll_hint, scroll_hint_overflow = scroll_hints
+        decision, lineno, _, visible_lines = self._conflict_position_info(conflict)
+        pane_size = visible_lines.stop - visible_lines.start
+        if visible_lines.stop - visible_lines.start < decision.linecount:
+            scroll_hint = scroll_hint_overflow
+
+        match scroll_hint:
+            case ScrollSnap.TOP:
+                self.scroll_vert_to(lineno)
+            case ScrollSnap.CENTER:
+                offset = (pane_size - decision.linecount) // 2
+                self.scroll_vert_to(lineno - offset)
+                pass
+            case ScrollSnap.BOTTOM:
+                self.scroll_vert_to(lineno + decision.linecount - pane_size)
+
+    def _conflict_position_info(self, conflict: int) -> tuple[Decision, int, int, range]:
         content_window_height, _ = self._content_panel.window().getmaxyx()
-        visible_lines = range(self._vscroll, self._vscroll + content_window_height)
         lineno, decision = self._selected_conflict_and_line(conflict)
+        lastline = lineno + decision.linecount - 1
+        first_line_past_window = self._vscroll + content_window_height
+        visible_lines = range(self._vscroll, first_line_past_window)
+        return decision, lineno, lastline, visible_lines
+
+    def conflict_visibility(self, conflict: int) -> ConflictVisibility:
+        _, lineno, lastline, visible_lines = self._conflict_position_info(conflict)
+        if lineno in visible_lines and lastline in visible_lines:
+            return ConflictVisibility.WITHIN_WINDOW
         if lineno in visible_lines:
-            lineno = self._vscroll  # don't scroll, just repaint
-        elif lineno + decision.linecount - 1 in visible_lines:
-            pass  # scroll just far enough
-        else:
-            pane_height, _ = self._content_panel.window().getmaxyx()
-            conflict_height = decision.linecount
-            if conflict_height < pane_height:
-                lineno -= (pane_height - conflict_height) // 2
-        self.scroll_vert_to(lineno)
+            return ConflictVisibility.PARTIALLY_BELOW_WINDOW
+        if lastline in visible_lines:
+            return ConflictVisibility.PARTIALLY_ABOVE_WINDOW
+        if lineno >= visible_lines.stop:
+            return ConflictVisibility.BELOW_WINDOW
+        if lastline < visible_lines.start:
+            return ConflictVisibility.ABOVE_WINDOW
+        return ConflictVisibility.OVERFLOWS_WINDOW
 
     def conflict_is_visible(self, conflict: int) -> bool:
-        content_window_height, _ = self._content_panel.window().getmaxyx()
         try:
-            lineno, decision = self._selected_conflict_and_line(conflict)
+            return self.conflict_visibility(conflict).is_visible
         except KeyError:
             return False
-        visible_lines = range(self._vscroll, self._vscroll + content_window_height)
-        return lineno in visible_lines or lineno + decision.linecount - 1 in visible_lines
 
     def visible_conflicts(self) -> Generator[int]:
         for i in self._merge_output.decision_chunk_indices.keys():
@@ -521,15 +562,16 @@ class OutputPane(Pane):
     def toggle_resolution(self, conflict: int, resolution: Resolution) -> None:
         decision = self._merge_output.get_decision(conflict)
         if resolution in decision.resolution:
-            self.resolve(conflict, decision.resolution - resolution)
+            new_resolution = decision.resolution - resolution
         else:
             try:
                 new_resolution = decision.resolution + resolution
             except ArithmeticError:
                 new_resolution = resolution
-            self.resolve(conflict, new_resolution)
+        self.resolve(conflict, new_resolution)
 
     def resolve(self, conflict: int, resolution: Resolution, edit: Optional[Edit] = None) -> None:
+        pre_visibility = self.conflict_visibility(conflict)
         decision_chunk_index = self._merge_output.decision_chunk_indices[conflict]
         decision = self._merge_output.get_decision(conflict)
         assert(isinstance(decision, Decision))
@@ -576,8 +618,21 @@ class OutputPane(Pane):
         else:
             self._color = self._unresolved_color
         self._draw_merge_output()
-        self.scroll_to_conflict(conflict)
-        self._draw()
+        post_visibility = self.conflict_visibility(conflict)
+        scroll_hint = None
+        if post_visibility.is_visible:
+            pass
+        elif pre_visibility.is_visible and not post_visibility.is_visible:
+            scroll_hint = (ScrollSnap.TOP, ScrollSnap.BOTTOM)
+        elif post_visibility == ConflictVisibility.ABOVE_WINDOW:
+            scroll_hint = (ScrollSnap.CENTER, ScrollSnap.BOTTOM)
+        elif post_visibility == ConflictVisibility.BELOW_WINDOW:
+            scroll_hint = (ScrollSnap.CENTER, ScrollSnap.BOTTOM)
+
+        if scroll_hint:
+            self.scroll_to_conflict(conflict, scroll_hint)
+        else:
+            self._draw()
 
     def _draw_merge_output(self) -> None:
         self._merge_output.draw(self, self._selected_conflict)
@@ -960,12 +1015,17 @@ class TUIMerge:
         self._output_pane.resize(*self._output_dim())
         self._dialog.resize(*self._stdscr.getmaxyx())
 
-    def _select_conflict(self, n: int) -> None:
+    @property
+    def _selected_conflict(self) -> int:
+        return self._output_pane.selected_conflict
+
+    def _select_conflict(self, n: int, scroll_minimal: bool = False) -> None:
         try:
+            pre_visibility = self._output_pane.conflict_visibility(n)
             current_decision = self._merge_output.get_decision(n)
-        except IndexError:
+        except (KeyError, IndexError):
             return
-        self._selected_conflict = n
+        self._output_pane.select_conflict(n)
 
         self._change_panes[0].set_change(current_decision.conflict.base, current_decision.conflict.a)
         self._change_panes[1].set_change(current_decision.conflict.base, current_decision.conflict.b)
@@ -977,25 +1037,47 @@ class TUIMerge:
         hsplit_change = new_hsplit - old_hsplit
         self._output_pane.scroll_vert(hsplit_change)
         self._move_hsplit_to(new_hsplit)
-        self._output_pane.scroll_to_conflict(self._selected_conflict)
+        post_visibility = self._output_pane.conflict_visibility(n)
+
+        if scroll_minimal:
+            if post_visibility in (
+                ConflictVisibility.WITHIN_WINDOW,
+                ConflictVisibility.PARTIALLY_BELOW_WINDOW
+            ):
+                return
+            scroll_snap = (ScrollSnap.TOP, ScrollSnap.TOP)
+        else:
+            if post_visibility == ConflictVisibility.WITHIN_WINDOW:
+                return
+            elif not pre_visibility.is_visible:
+                scroll_snap = (ScrollSnap.CENTER, ScrollSnap.TOP)
+            elif post_visibility == ConflictVisibility.PARTIALLY_BELOW_WINDOW:
+                scroll_snap = (ScrollSnap.BOTTOM, ScrollSnap.TOP)
+            else:
+                scroll_snap = (ScrollSnap.TOP, ScrollSnap.TOP)
+
+        self._output_pane.scroll_to_conflict(
+            self._selected_conflict,
+            scroll_hints=scroll_snap
+        )
 
     def _select_next_or_page_down(self) -> None:
         selected_seen = False
         next_conflict = self._selected_conflict + 1
         if self._output_pane.conflict_is_visible(next_conflict):
-            self._select_conflict(next_conflict)
+            self._select_conflict(next_conflict, scroll_minimal=True)
         else:
             visible_conflicts = [*self._output_pane.visible_conflicts()]
             selected_seen = self._selected_conflict in visible_conflicts
             if visible_conflicts and not selected_seen:
-                self._select_conflict(visible_conflicts[0])
+                self._select_conflict(visible_conflicts[0], scroll_minimal=True)
             else:
                 self._output_pane.scroll_page(1)
                 visible_conflicts = [*self._output_pane.visible_conflicts()]
                 if selected_seen and self._selected_conflict in visible_conflicts:
                     return
                 if visible_conflicts:
-                    self._select_conflict(visible_conflicts[0])
+                    self._select_conflict(visible_conflicts[0], scroll_minimal=True)
 
     def _get_chunk_if_text(self, i: int) -> list[str]:
         try:
