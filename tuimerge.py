@@ -1470,7 +1470,7 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
     ## work around some common pager quirks ##
     pager_env = os.environ.copy()
     pager_env['LESS'] = ' '.join([
-        pager_env.get('LESS', ''),
+        *[less_env for less_env in [pager_env.get('LESS')] if less_env],
         '--+no-init',
         '--+quit-if-one-screen',  # scroll single-screen contents to top
         '--+quit-at-eof',
