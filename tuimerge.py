@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum, auto
 from itertools import chain, repeat
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -1097,7 +1098,11 @@ class TUIMerge:
             editor_lines = [*prelude, *selected_decision.lines(), *epilogue]
             orig_lines = orig_lines or editor_lines
             editor_program = editor()
-            with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as editor_file:
+            with NamedTemporaryFile(
+                'w+', delete_on_close=False,
+                prefix=tempfile_prefix(self._outfile or self._files[2].filename),
+                suffix='.diff3'
+            ) as editor_file:
                 editor_file.writelines(f'{line}\n' for line in editor_lines)
                 editor_file.close()
                 curses.def_prog_mode()
@@ -1437,7 +1442,10 @@ class TUIMerge:
 
         with (
             NamedTemporaryFile('w+', delete_on_close=False) as merged_file,
-            NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as diff_file
+            NamedTemporaryFile(
+                'w+', delete_on_close=False,
+                prefix=tempfile_prefix(self._files[2].filename), suffix='.diff'
+            ) as diff_file
         ):
             merged_file.writelines(f'{line}\n' for line in self._merge_output.lines(ignore_unresolved=True))
             merged_file.close()
@@ -1807,6 +1815,11 @@ def wrapper[**P](
     curses.wrapper(wrapping)
 
 
+def tempfile_prefix(filename: Optional[str] = None) -> str:
+    prefix = Path(filename).name if filename else 'tuimerge'
+    return f'{prefix}-'
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog='tuimerge',
@@ -1843,7 +1856,10 @@ def main() -> None:
         diff3 = do_diff3(
             myfile.filename, oldfile.filename, yourfile.filename, labels)
         if view_only:
-            with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
+            with NamedTemporaryFile(
+                'w+', delete_on_close=False,
+                prefix=tempfile_prefix(oldfile.filename), suffix='.diff3'
+            ) as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff3)
                 viewfile.close()
                 # TODO: Use color where applicable
@@ -1865,7 +1881,10 @@ def main() -> None:
         )
 
         if view_only:
-            with NamedTemporaryFile('w+', delete_on_close=False, prefix='tuimerge-') as viewfile:
+            with NamedTemporaryFile(
+                'w+', delete_on_close=False,
+                prefix=tempfile_prefix(myfile.filename), suffix='.diff'
+            ) as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff2)
                 viewfile.close()
                 # TODO: Use color where applicable
