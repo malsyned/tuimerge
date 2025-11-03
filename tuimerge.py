@@ -188,7 +188,7 @@ class Pane:
     def _draw_titlebar(self) -> None:
         titlewin = self._title_panel.window()
         bg_attr = self._color.attr | curses.A_REVERSE
-        if self._focused:
+        if self._focused and curses.COLORS > 8:
             bg_attr |= curses.A_BOLD
         titlewin.bkgdset(' ', bg_attr)
         noerror(titlewin.addch, 0, 0, '[' if self._focused else ' ')
