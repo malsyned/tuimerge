@@ -1866,6 +1866,8 @@ def main() -> None:
                         help='which input file to save output to; OUTPUT, if set, overrides this')
     parser.add_argument('-n', '--view-only', action='store_true',
                         help='display the raw diff or zdiff3 output instead of opening tuimerge')
+    parser.add_argument('-x', '--exchange', action='store_true',
+                        help='exchange CURRENT and INCOMING')
     parser.add_argument('-L', '--label', action='append', default=[],
                         help='use LABEL instead of the file name (can be repeated up to 3 times)')
     parser.add_argument('CURRENT',
@@ -1884,6 +1886,9 @@ def main() -> None:
     myfile = Revision(args.CURRENT, next(label_iter, None))
     oldfile = Revision(args.BASE, next(label_iter, None)) if args.BASE else None
     yourfile = Revision(args.INCOMING, next(label_iter, None))
+    if args.exchange:
+        myfile, yourfile = yourfile, myfile
+
     outfile = args.output
     if not outfile:
         if args.write_to_version == 'current':
