@@ -1892,9 +1892,9 @@ def main() -> None:
     outfile = args.output
     if not outfile:
         if args.write_to_version == 'current':
-            outfile = args.CURRENT
+            outfile = myfile.filename
         elif args.write_to_version == 'incoming':
-            outfile = args.INCOMING
+            outfile = yourfile.filename
         # 'base' is indicated by outfile == None
 
     if oldfile:
