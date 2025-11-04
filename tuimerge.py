@@ -1880,6 +1880,7 @@ def main() -> None:
         description='Terminal-based interactive 2-way/3-way merge tool'
     )
     #TODO: Add epilog about how to configure for git mergetool & pacdiff
+    #TODO: Add --pacdiff to combine all pacdiff compatibility flags
     parser.add_argument('-o', '--output',
                         help='write merged result to the given file instead of BASE')
     parser.add_argument('-w', '--write-to-version', choices=['current', 'base', 'incoming'], default='base',
@@ -1890,6 +1891,8 @@ def main() -> None:
                         help='exchange CURRENT and INCOMING')
     parser.add_argument('-L', '--label', action='append', default=[],
                         help='use LABEL instead of the file name (can be repeated up to 3 times)')
+    parser.add_argument('-3', '--three', action='store_true',
+                        help='if called with fewer than 3 files, run with --view-only')
     parser.add_argument('CURRENT',
                         help='new local revision of a file, a.k.a. "MYFILE"')
     parser.add_argument('BASE', nargs='?',
@@ -1897,8 +1900,6 @@ def main() -> None:
     parser.add_argument('INCOMING',
                         help='incoming revision of a file, a.k.a. "YOURFILE"')
     args = parser.parse_args()
-
-    view_only = args.view_only or not sys.stdout.isatty()
 
     labels: list[str] = args.label
     label_iter = iter(labels)
@@ -1916,6 +1917,12 @@ def main() -> None:
         elif args.write_to_version == 'incoming':
             outfile = yourfile.filename
         # 'base' is indicated by outfile == None
+
+    view_only = (
+        args.view_only
+        or not sys.stdout.isatty()
+        or (args.three and not args.BASE)
+    )
 
     if oldfile:
         # Promise the type system I know what I'm doing
