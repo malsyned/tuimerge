@@ -447,6 +447,17 @@ class ScrollSnap(Enum):
     BOTTOM = auto()
 
 
+def titlebar_divisions(filenames: list[str], filename_room: int) -> list[int]:
+    filename_divs = filename_room // 2, filename_room - filename_room // 2
+    filename_divs = [min(len(fn), div) for fn, div in zip(filenames, filename_divs)]
+    for i in range(len(filename_divs)):
+        other = int(not i)
+        extra = filename_room - filename_divs[other] - filename_divs[i]
+        if len(filenames[i]) <= filename_divs[i]:
+            filename_divs[other] += extra
+    return filename_divs
+
+
 class OutputPane(Pane):
     def __init__(
         self,
@@ -644,16 +655,25 @@ class OutputPane(Pane):
 
     def _draw_title(self) -> None:
         titlewin = self._title_panel.window()
+        _, cols = titlewin.getmaxyx()
 
         name = self._file.filename or self._file.label
         if name and self._outfile:
+            # filename_room = cols - len('[Base: ; Output:  (Merge) ] ' + self._status)
+            filename_room = cols - len('[Base: ; Output: ] ' + self._status)
+            filenames = [name, self._outfile]
+            filename_divs = titlebar_divisions(filenames, filename_room)
+            for i, (filename, div) in enumerate(zip(filenames, filename_divs)):
+                if len(filename) > div:
+                    filenames[i] = '…' + filename[-(div - 1):]
+
             noerror(titlewin.addstr, 'Base:')
             noerror(titlewin.addch, ' ')
-            noerror(titlewin.addstr, name)
+            noerror(titlewin.addstr, filenames[0])
             noerror(titlewin.addstr, '; ')
             noerror(titlewin.addstr, 'Output:')
             noerror(titlewin.addch, ' ')
-            noerror(titlewin.addstr, self._outfile)
+            noerror(titlewin.addstr, filenames[1])
             noerror(titlewin.addch, ' ')
         else:
             merge = name or self._outfile
@@ -662,12 +682,18 @@ class OutputPane(Pane):
                 noerror(titlewin.addch, ' ')
         noerror(titlewin.addstr, '(Merge)', curses.A_ITALIC)
 
+    @property
+    def _status(self) -> str:
+        return 'RESOLVED' if self._fully_resolved() else 'UNRESOLVED'
+
     def _draw_titlebar(self) -> None:
         super()._draw_titlebar()
         titlewin = self._title_panel.window()
         _, cols = titlewin.getmaxyx()
-        status = ' RESOLVED' if self._fully_resolved() else ' UNRESOLVED'
-        noerror(titlewin.addstr, 0, cols - 1 - len(status), status)
+        status = self._status
+        # Ensure some space between titlebar contents and resolution status
+        noerror(titlewin.addch, 0, cols - 2 - len(status), ' ')
+        noerror(titlewin.addstr, status)
 
 
 class Resolution(Enum):
