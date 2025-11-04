@@ -190,14 +190,22 @@ class Pane:
 
     def _draw_titlebar(self) -> None:
         titlewin = self._title_panel.window()
+        _, cols = titlewin.getmaxyx()
         bg_attr = self._color.attr | curses.A_REVERSE
         if self._focused and curses.COLORS != 8:
             bg_attr |= curses.A_BOLD
         titlewin.bkgdset(' ', bg_attr)
+        titlewin.erase()
+        if self._focused and curses.COLORS == 8:
+            self._title_bar_focus_char = curses.ACS_CKBOARD
+            titlewin.move(0, 0)
+            for _ in range(cols):
+                noerror(titlewin.addch, self._title_bar_focus_char)
+        else:
+            self._title_bar_focus_char = ' '
         noerror(titlewin.addch, 0, 0, '[' if self._focused else ' ')
         self._draw_title()
         noerror(titlewin.addch, ']' if self._focused else ' ')
-        titlewin.clrtobot()
 
     @abstractmethod
     def _draw_title(self) -> None: ...
@@ -692,7 +700,7 @@ class OutputPane(Pane):
         _, cols = titlewin.getmaxyx()
         status = self._status
         # Ensure some space between titlebar contents and resolution status
-        noerror(titlewin.addch, 0, cols - 2 - len(status), ' ')
+        noerror(titlewin.addch, 0, cols - 2 - len(status), self._title_bar_focus_char)
         noerror(titlewin.addstr, status)
 
 
