@@ -1856,13 +1856,16 @@ def tempfile_prefix(filename: Optional[str] = None) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog='tuimerge',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description='Terminal-based interactive 2-way/3-way merge tool'
     )
     #TODO: Add epilog about how to configure for git mergetool & pacdiff
     parser.add_argument('-o', '--output',
                         help='write merged result to the given file instead of BASE')
+    parser.add_argument('-w', '--write-to-version', choices=['current', 'base', 'incoming'], default='base',
+                        help='which input file to save output to; OUTPUT, if set, overrides this')
     parser.add_argument('-n', '--view-only', action='store_true',
-                        help='display the raw diff or zdiff3 output instead of opening tuimerge; for pacdiff $DIFFPROG compatibility')
+                        help='display the raw diff or zdiff3 output instead of opening tuimerge')
     parser.add_argument('-L', '--label', action='append', default=[],
                         help='use LABEL instead of the file name (can be repeated up to 3 times)')
     parser.add_argument('CURRENT',
@@ -1882,6 +1885,12 @@ def main() -> None:
     oldfile = Revision(args.BASE, next(label_iter, None)) if args.BASE else None
     yourfile = Revision(args.INCOMING, next(label_iter, None))
     outfile = args.output
+    if not outfile:
+        if args.write_to_version == 'current':
+            outfile = args.CURRENT
+        elif args.write_to_version == 'incoming':
+            outfile = args.INCOMING
+        # 'base' is indicated by outfile == None
 
     if oldfile:
         # Promise the type system I know what I'm doing
