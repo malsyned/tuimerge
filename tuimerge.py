@@ -1385,6 +1385,7 @@ class TUIMerge:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_BASE)
             elif c in (ord('u'), curses.KEY_BACKSPACE) and self._has_conflicts:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
+            # TODO: just open an editor on the whole file if there are no conflicts
             elif c == ord('e') and self._has_conflicts:
                 self._edit_selected_conflict()
             elif c in (ord('d'), ord('v')):
