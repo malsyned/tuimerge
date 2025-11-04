@@ -383,7 +383,11 @@ class MergeOutput:
         pane.gutter.erase()
         pane.content.erase()
         lineno = 0
-        selected_chunk = self.decision_chunk_indices[selected_conflict]
+        if self.decision_chunk_indices:
+            selected_chunk = self.decision_chunk_indices[selected_conflict]
+        else:
+            selected_chunk = -1
+
         #FIXME: Deal properly with ^M and other control characters
         for i, e in enumerate(self.edited_chunks()):
             if isinstance(e, Decision):
@@ -464,7 +468,9 @@ class OutputPane(Pane):
         self._resolved_color = resolved_color
         self._unresolved_color = unresolved_color
 
-        super().__init__(unresolved_color, nlines, ncols, begin_line, begin_col, gutter_width=2)
+        color = unresolved_color if merge_output.decision_chunk_indices else resolved_color
+
+        super().__init__(color, nlines, ncols, begin_line, begin_col, gutter_width=2)
         self._resize_content(merge_output.height, merge_output.width)
         merge_output.draw(self)
         self._draw()
@@ -947,7 +953,6 @@ class TUIMerge:
     ):
         self._outfile = outfile
         self._files = [file_a, file_b, file_base]
-        self._merge = merge
         self._merge_output = MergeOutput(merge)
         self._vsplit = .5
         self._hsplit = .5
@@ -996,6 +1001,8 @@ class TUIMerge:
         self._top_half_resized()
 
     def _top_half_resized(self) -> None:
+        if not self._has_conflicts:
+            return
         self._draw_borders()
         self._change_panes[0].resize(*self._change_a_dim())
         self._change_panes[1].resize(*self._change_b_dim())
@@ -1019,6 +1026,8 @@ class TUIMerge:
         return self._output_pane.selected_conflict
 
     def _select_conflict(self, n: int, scroll_minimal: bool = False) -> None:
+        if not self._has_conflicts:
+            return
         try:
             pre_visibility = self._output_pane.conflict_visibility(n)
             current_decision = self._merge_output.get_decision(n)
@@ -1061,6 +1070,9 @@ class TUIMerge:
         )
 
     def _select_next_or_page_down(self) -> None:
+        if not self._has_conflicts:
+            self._output_pane.scroll_page(1)
+            return
         selected_seen = False
         next_conflict = self._selected_conflict + 1
         if self._output_pane.conflict_is_visible(next_conflict):
@@ -1164,6 +1176,8 @@ class TUIMerge:
 
     def _output_dim(self) -> tuple[int, int, int, int]:
         lines, cols = self._stdscr.getmaxyx()
+        if not self._has_conflicts:
+            return lines, cols, 0, 0
         return lines - self._hsplit_row, cols, self._hsplit_row, 0
 
     def _set_focus(self, n: int) -> None:
@@ -1231,6 +1245,9 @@ class TUIMerge:
             return inputs[0]
         return chr(c)
 
+    @property
+    def _has_conflicts(self) -> bool:
+        return bool(self._merge_output.decision_chunk_indices)
 
     def run(self, stdscr: curses.window) -> None:
         self._stdscr = stdscr
@@ -1240,10 +1257,13 @@ class TUIMerge:
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
 
-        self._change_panes = [
-            ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
-            ChangePane(self._files[1], 'B', 'Incoming', ColorPair.B, *self._change_b_dim()),
-        ]
+        if self._has_conflicts:
+            self._change_panes = [
+                ChangePane(self._files[0], 'A', 'Current', ColorPair.A, *self._change_a_dim()),
+                ChangePane(self._files[1], 'B', 'Incoming', ColorPair.B, *self._change_b_dim()),
+            ]
+        else:
+            self._change_panes = []
         self._output_pane = OutputPane(
             self,
             self._files[2],
@@ -1260,7 +1280,7 @@ class TUIMerge:
         ]
         self._dialog = Dialog()
 
-        self._set_focus(2)
+        self._set_focus(len(self._panes) - 1)
         self._select_conflict(0)
         self._draw_borders()
 
@@ -1282,9 +1302,9 @@ class TUIMerge:
                 if result == 'y':
                     exit(1)  # indicate to git that the merge wasn't completed
             elif c == ord('\t'):
-                self._set_focus((self._focused + 1) % 3)
+                self._set_focus((self._focused + 1) % len(self._panes))
             elif c == curses.KEY_BTAB:
-                self._set_focus((self._focused - 1) % 3)
+                self._set_focus((self._focused - 1) % len(self._panes))
             elif c in (curses.KEY_UP, ord('k')):
                 self._panes[self._focused].scroll_vert(-1)
             elif c in (curses.KEY_DOWN, ord('j')):
@@ -1311,27 +1331,27 @@ class TUIMerge:
                 pane = self._panes[self._focused]
                 lines, _, _, _ = self._output_dim()
                 pane.scroll_vert_to(pane.content_height - 1 - lines)
-            elif c == ord('p'):
-                self._select_conflict(self._selected_conflict - 1)
-            elif c == ord('n'):
-                self._select_conflict(self._selected_conflict + 1)
             elif c == ord(' '):
                 self._select_next_or_page_down()
-            elif c == ord('a'):
+            elif c == ord('p') and self._has_conflicts:
+                self._select_conflict(self._selected_conflict - 1)
+            elif c == ord('n') and self._has_conflicts:
+                self._select_conflict(self._selected_conflict + 1)
+            elif c == ord('a') and self._has_conflicts:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A)
-            elif c == ord('b'):
+            elif c == ord('b') and self._has_conflicts:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_B)
-            elif c == ord('A'):
+            elif c == ord('A') and self._has_conflicts:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A_FIRST)
-            elif c == ord('B'):
+            elif c == ord('B') and self._has_conflicts:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_B_FIRST)
-            elif c == ord('x'):
+            elif c == ord('x') and self._has_conflicts:
                 self._output_pane.swap_resolutions(self._selected_conflict)
-            elif c in (ord('i'), curses.KEY_DC):
+            elif c in (ord('i'), curses.KEY_DC) and self._has_conflicts:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_BASE)
-            elif c in (ord('u'), curses.KEY_BACKSPACE):
+            elif c in (ord('u'), curses.KEY_BACKSPACE) and self._has_conflicts:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
-            elif c == ord('e'):
+            elif c == ord('e') and self._has_conflicts:
                 self._edit_selected_conflict()
             elif c in (ord('d'), ord('v')):
                 self._view_diff()
