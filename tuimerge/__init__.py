@@ -1791,15 +1791,8 @@ def _merge_from_diff(
     mine_label: str, mine: list[str],
     yours_label: str, yours: list[str]
 ) -> Generator[list[str] | Conflict | Decision]:
-    HUNK_RE = re.compile(r'^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@')
     next_mine_lineno = 0
-    for line in diff:
-        if (m := HUNK_RE.match(line)):
-            mine_lineno_raw, mine_count, yours_lineno_raw, yours_count = [
-                int(n) if n else 1 for n in m.group(1, 2, 3, 4)
-            ]
-            mine_lineno = mine_lineno_raw - int(bool(mine_count))
-            yours_lineno = yours_lineno_raw - int(bool(yours_count))
+    for mine_lineno, mine_count, yours_lineno, yours_count in parse_diff(diff):
             prelude_lines = mine[next_mine_lineno:mine_lineno]
             if prelude_lines:
                 yield prelude_lines
@@ -1810,6 +1803,19 @@ def _merge_from_diff(
     rest = mine[next_mine_lineno:]
     if rest:
         yield rest
+
+
+def parse_diff(diff: list[str]) -> Generator[tuple[int, int, int, int]]:
+    """Return zero-indexed line numbers and line counts from a unidiff"""
+    HUNK_RE = re.compile(r'^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@')
+    for line in diff:
+        if (m := HUNK_RE.match(line)):
+            mine_lineno_raw, mine_count, yours_lineno_raw, yours_count = [
+                int(n) if n else 1 for n in m.group(1, 2, 3, 4)
+            ]
+            mine_lineno = mine_lineno_raw - int(bool(mine_count))
+            yours_lineno = yours_lineno_raw - int(bool(yours_count))
+            yield mine_lineno, mine_count, yours_lineno, yours_count
 
 
 def diff3() -> str:
@@ -2085,7 +2091,7 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
     base_label = next(label_iter, '')
     b_label = next(label_iter, '')
 
-    merge3 = Merge3(base,a, b)
+    merge3 = Merge3(base,a, b, sequence_matcher=SubprocessSequenceMatcher)
 
     iz = ia = ib = 0
     sync_regions = cast(list[SyncRegion], merge3.find_sync_regions())   # type: ignore
@@ -2128,3 +2134,39 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
         iz = zend
         ia = aend
         ib = bend
+
+
+class SubprocessSequenceMatcher:
+    def __init__(
+        self,
+        isjunk: Optional[Callable[[list[str]], bool]] = None,
+        a: Sequence[list[str]] = [],
+        b: Sequence[list[str]] = [],
+        autojunk: bool = True,
+    ) -> None:
+        """Initialize the sequence matcher."""
+        with (
+            NamedTemporaryFile('w+', delete_on_close=False) as tmp_a,
+            NamedTemporaryFile('w+', delete_on_close=False) as tmp_b,
+        ):
+            tmp_a.writelines(f'{line}\n' for line in a)
+            tmp_a.close()
+
+            tmp_b.writelines(f'{line}\n' for line in b)
+            tmp_b.close()
+
+            diff_output = do_diff2(
+                tmp_a.name, tmp_b.name, context=0)
+
+        self._matches: list[tuple[int, int, int]] = []
+        ai = bi = 0
+        for aline, acount, bline, bcount in parse_diff(diff_output):
+            self._matches.append((ai, bi, aline - ai))
+            ai = aline + acount
+            bi = bline + bcount
+        self._matches.append((ai, bi, len(a) - ai))
+        self._matches.append((len(a), len(b), 0))
+
+    def get_matching_blocks(self) -> list[tuple[int, int, int]]:
+        """Return list of matching blocks as 3-tuples (i, j, n)."""
+        return self._matches
