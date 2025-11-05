@@ -1981,6 +1981,7 @@ def main() -> None:
                 # TODO: Use color where applicable
                 # TODO: Consider -F -X, unset POSIXLY_CORRECT
                 do_pager(viewfile.name, pause_curses=False)
+            # TODO: exit with return value from diff3 program
             exit()
 
         if args.internal_merge:
@@ -2017,6 +2018,7 @@ def main() -> None:
                 # TODO: Use color where applicable
                 # TODO: Consider -F -X, unset POSIXLY_CORRECT
                 do_pager(viewfile.name, pause_curses=False)
+            # TODO: exit with return value from diff program
             exit()
         mine_label = myfile.label or myfile.filename
         yours_label = yourfile.label or yourfile.filename
