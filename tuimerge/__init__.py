@@ -1384,7 +1384,9 @@ class TUIMerge:
             elif c == ord('e') and self._has_conflicts:
                 self._edit_selected_conflict()
             elif c in (ord('d'), ord('v')):
-                self._view_diff()
+                self._view_diff(self._files[2])
+            elif c == ord('D'):
+                self._view_diff(self._files[0])
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
             # elif c == ord('!'):
@@ -1445,6 +1447,7 @@ class TUIMerge:
             'U        Unresolve conflict',
             'E        Open conflict in external editor',
             'D        View diff between Base and Merge',
+            'Shift+D  View diff between Current and Merge',
             'X        Swap resolution order',
             'S        Save changes and quit',
             'Q        Quit without saving changes',
@@ -1480,8 +1483,7 @@ class TUIMerge:
             f.writelines(f'{line}\n' for line in self._merge_output.lines())
         return True
 
-    def _view_diff(self) -> None:
-        orig_rev = self._files[2]
+    def _view_diff(self, orig_rev: Revision) -> None:
         if not orig_rev.filename:
             raise ValueError(f'No filename available for original file {orig_rev.label or ""}')
         orig_desc = orig_rev.label or orig_rev.filename or ''
