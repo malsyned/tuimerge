@@ -202,7 +202,7 @@ class Pane:
             for _ in range(cols):
                 noerror(titlewin.addch, self._title_bar_focus_char)
         else:
-            self._title_bar_focus_char = ' '
+            self._title_bar_focus_char = ord(' ')
         noerror(titlewin.addch, 0, 0, '[' if self._focused else ' ')
         self._draw_title()
         noerror(titlewin.addch, ']' if self._focused else ' ')
@@ -456,7 +456,7 @@ class ScrollSnap(Enum):
 
 
 def titlebar_divisions(filenames: list[str], filename_room: int) -> list[int]:
-    filename_divs = filename_room // 2, filename_room - filename_room // 2
+    filename_divs = [filename_room // 2, filename_room - filename_room // 2]
     filename_divs = [min(len(fn), div) for fn, div in zip(filenames, filename_divs)]
     for i in range(len(filename_divs)):
         other = int(not i)
