@@ -1972,7 +1972,7 @@ def main() -> None:
                         help='use LABEL instead of the file name (can be repeated up to 3 times)')
     parser.add_argument('-3', '--three', action='store_true',
                         help='if called with fewer than 3 files, run with --view-only')
-    parser.add_argument('-m', '--internal-merge', action='store_true',
+    parser.add_argument('-m', '--external-merge', action='store_true',
                         help='compute 3-way merge internally instead of calling a diff3 program')
     parser.add_argument('CURRENT',
                         help='new local revision of a file, a.k.a. "MYFILE"')
@@ -2025,7 +2025,7 @@ def main() -> None:
             # TODO: exit with return value from diff3 program
             exit()
 
-        if args.internal_merge:
+        if not args.external_merge:
             with (
                 open(myfile.filename) as myf,
                 open(oldfile.filename) as oldf,
