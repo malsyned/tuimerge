@@ -879,7 +879,7 @@ class Decision:
                 bracket = curses.ACS_LLCORNER
             else:
                 bracket = curses.ACS_VLINE
-            noerror(pane.gutter.addch, lineno, 0, ord(this_prefix), color.attr | gutter_attr)
+            noerror(pane.gutter.addstr, lineno, 0, this_prefix, color.attr | gutter_attr)
             noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
             if text:
                 noerror(pane.content.addstr, lineno, 0, line, color.attr | pane_attr)
@@ -891,12 +891,16 @@ class Decision:
         return lineno
 
     def _draw_a(self, pane: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
-        prefix = 'A'
+        prefix = 'A' if self.conflict.a != self.conflict.b else '⇋' # '=' # '⇆'
         return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
 
     def _draw_b(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
-        prefix = 'B'
+        prefix = 'B' if self.conflict.a != self.conflict.b else '⇌' # '=' # '⇆'
         return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
+
+    def _draw_same(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
+        prefix = '⇄'
+        return self._draw_with_gutter(window, self.conflict.a, ColorPair.A, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
 
     def _draw_base(self, window: Pane, color: ColorPair, p: str, selected: bool, lineno: int) -> int:
         return self._draw_with_gutter(window, self.conflict.base, color, p, selected, lineno)
