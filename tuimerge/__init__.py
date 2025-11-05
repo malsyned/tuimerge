@@ -1350,7 +1350,7 @@ class TUIMerge:
             elif c in (curses.KEY_END, ord('>')):
                 pane = self._panes[self._focused]
                 lines, _, _, _ = self._output_dim()
-                pane.scroll_vert_to(pane.content_height - 1 - lines)
+                pane.scroll_vert_to(pane.content_height + 1 - lines)
             elif c == ord(' '):
                 self._select_next_or_page_down()
             elif c == ord('p') and self._has_conflicts:
