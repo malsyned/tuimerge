@@ -597,6 +597,10 @@ class OutputPane(Pane):
                 new_resolution = resolution
         self.resolve(conflict, new_resolution)
 
+    def default_resolution(self, conflict: int) -> None:
+        decision = self._merge_output.get_decision(conflict)
+        self.resolve(conflict, decision.default_resolution)
+
     def resolve(self, conflict: int, resolution: Resolution, edit: Optional[Edit] = None) -> None:
         pre_visibility = self.conflict_visibility(conflict)
         decision_chunk_index = self._merge_output.decision_chunk_indices[conflict]
@@ -815,6 +819,9 @@ class Decision:
     resolution: Resolution = Resolution.UNRESOLVED
     edit: list[str] = field(default_factory=list[str])
 
+    def __post_init__(self):
+        self.default_resolution = self.resolution
+
     @property
     def linecount(self) -> int:
         match self.resolution:
@@ -895,7 +902,7 @@ class Decision:
         return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
 
     def _draw_b(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
-        prefix = 'B' if self.conflict.a != self.conflict.b else '⇌' # '=' # '⇆'
+        prefix = 'B' if self.conflict.a != self.conflict.b else '⇌' # '=' # '⇄'
         return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
 
     def _draw_same(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
@@ -1393,6 +1400,8 @@ class TUIMerge:
             elif c in (ord('u'), curses.KEY_BACKSPACE) and self._has_conflicts:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             # TODO: just open an editor on the whole file if there are no conflicts
+            elif c == ord('r'):
+                self._output_pane.default_resolution(self._selected_conflict)
             elif c == ord('e') and self._has_conflicts:
                 self._edit_selected_conflict()
             elif c in (ord('d'), ord('v')):
@@ -1457,6 +1466,7 @@ class TUIMerge:
             'Shift+A  ' + Resolution.USE_A_FIRST.value,
             'Shift+B  ' + Resolution.USE_B_FIRST.value,
             'I        ' + Resolution.USE_BASE.value,
+            'R        Reset to default resolution',
             'U        Unresolve conflict',
             'E        Open conflict in external editor',
             'D        View diff between Base and Merge',
@@ -2098,11 +2108,18 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
 
             if zealous_ok and prefix:
                 yield Decision(mkconflict([], prefix, prefix), Resolution.USE_A)
-            decision = Decision(mkconflict(zlines, alines, blines))
+
             if alines == blines or zlines == blines:
-                decision.resolution = Resolution.USE_A
+                resolution = Resolution.USE_A
             elif zlines == alines:
-                decision.resolution = Resolution.USE_B
+                resolution = Resolution.USE_B
+            else:
+                resolution = Resolution.UNRESOLVED
+            decision = Decision(mkconflict(zlines, alines, blines), resolution)
+            # if alines == blines or zlines == blines:
+            #     decision.resolution = decision.default_resolution = Resolution.USE_A
+            # elif zlines == alines:
+            #     decision.resolution = decision.default_resolution = Resolution.USE_B
             yield decision
             if zealous_ok and suffix:
                 yield Decision(mkconflict([], suffix, suffix), Resolution.USE_A)
