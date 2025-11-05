@@ -1384,6 +1384,8 @@ class TUIMerge:
                 #TODO: Make it possible to toggle on all of A, B, and base lines
                 # ('I' isn't the right mnemonic at that point. "o" for "original"?)
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_BASE)
+            # TODO: restore the resolution to the one originally decided by
+            # internal_merge
             elif c in (ord('u'), curses.KEY_BACKSPACE) and self._has_conflicts:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
             # TODO: just open an editor on the whole file if there are no conflicts
