@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 import curses
 import curses.panel as panel
+from merge3 import Merge3
 import argparse
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum, auto
@@ -26,6 +27,8 @@ from typing import (
     NoReturn,
     Optional,
     Sequence,
+    Union,
+    cast,
     overload,
 )
 
@@ -341,7 +344,7 @@ class ChangePane(Pane):
 
 
 class MergeOutput:
-    def __init__(self, merge: list[list[str] | Conflict]) -> None:
+    def __init__(self, merge: list[list[str] | Conflict | Decision]) -> None:
         self.chunks = [Decision(c) if isinstance(c, Conflict) else c for c in merge]
         self.decision_indices: Sequence[int] = [i for (i, c) in enumerate(self.chunks) if isinstance(c, Decision)]
         self.decision_chunk_indices = MappingProxyType({i: v for i, v in enumerate(self.decision_indices)})
@@ -965,7 +968,7 @@ class TUIMerge:
         file_a: Revision,
         file_b: Revision,
         file_base: Revision,
-        merge: list[list[str] | Conflict],
+        merge: list[list[str] | Conflict | Decision],
         outfile: Optional[str] = None
     ):
         self._outfile = outfile
@@ -1661,10 +1664,10 @@ class MergeParser:
             raise OverflowError('attempted second pushback')
         self._pushed_back = tok
 
-    def parse(self) -> list[list[str] | Conflict]:
+    def parse(self) -> list[list[str] | Conflict | Decision]:
         return list(self._parse())
 
-    def _parse(self) -> Generator[list[str] | Conflict]:
+    def _parse(self) -> Generator[list[str] | Conflict | Decision]:
         try:
             while (tok := self._next_token()).type != 'eof':
                 match tok.type:
@@ -1746,7 +1749,7 @@ def merge_from_diff(
     diff: list[str],
     mine_label: str, mine: list[str],
     yours_label: str, yours: list[str]
-) -> list[list[str] | Conflict]:
+) -> list[list[str] | Conflict | Decision]:
     return list(_merge_from_diff(diff, mine_label, mine, yours_label, yours))
 
 
@@ -1754,7 +1757,7 @@ def _merge_from_diff(
     diff: list[str],
     mine_label: str, mine: list[str],
     yours_label: str, yours: list[str]
-) -> Generator[list[str] | Conflict]:
+) -> Generator[list[str] | Conflict | Decision]:
     HUNK_RE = re.compile(r'^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@')
     next_mine_lineno = 0
     for line in diff:
@@ -1929,6 +1932,8 @@ def main() -> None:
                         help='use LABEL instead of the file name (can be repeated up to 3 times)')
     parser.add_argument('-3', '--three', action='store_true',
                         help='if called with fewer than 3 files, run with --view-only')
+    parser.add_argument('-m', '--internal-merge', action='store_true',
+                        help='compute 3-way merge internally instead of calling a diff3 program')
     parser.add_argument('CURRENT',
                         help='new local revision of a file, a.k.a. "MYFILE"')
     parser.add_argument('BASE', nargs='?',
@@ -1960,12 +1965,13 @@ def main() -> None:
         or (args.three and not args.BASE)
     )
 
+    merge: list[list[str] | Conflict | Decision]
     if oldfile:
         # Promise the type system I know what I'm doing
         assert(myfile.filename and oldfile.filename and yourfile.filename)
-        diff3 = do_diff3(
-            myfile.filename, oldfile.filename, yourfile.filename, labels)
         if view_only:
+            diff3 = do_diff3(
+                myfile.filename, oldfile.filename, yourfile.filename, labels)
             with NamedTemporaryFile(
                 'w+', delete_on_close=False,
                 prefix=tempfile_prefix(oldfile.filename), suffix='.diff3'
@@ -1976,7 +1982,19 @@ def main() -> None:
                 # TODO: Consider -F -X, unset POSIXLY_CORRECT
                 do_pager(viewfile.name, pause_curses=False)
             exit()
-        merge = MergeParser(diff3).parse()
+
+        if args.internal_merge:
+            with (
+                open(myfile.filename) as myf,
+                open(oldfile.filename) as oldf,
+                open(yourfile.filename) as yourf,
+            ):
+                merge3 = Merge3(oldf.read().splitlines(), myf.read().splitlines(), yourf.read().splitlines())
+                merge = [*merge3_to_merge(merge3, labels)]
+        else:
+            diff3 = do_diff3(
+                myfile.filename, oldfile.filename, yourfile.filename, labels)
+            merge = MergeParser(diff3).parse()
     else:
         oldfile = myfile
 
@@ -2011,3 +2029,49 @@ def main() -> None:
 
     exit()
 
+
+# Workaround incomplete type information in merge3 0.0.15
+MergeGroupType = Union[
+    tuple[Literal["unchanged", "a", "same", "b"], Sequence[str]],
+    tuple[Literal["conflict"], Sequence[str], Sequence[str], Sequence[str]],
+]
+
+
+# TODO: This doesn't correctly report the base lines if one of 'a', 'same', or
+# 'b' deleted lines in the base before adding new ones. Maybe
+# Merge3.merge_regions() does? Until this is fixed, the 'I' command won't work
+# correctly.
+#
+# TODO: zdiff3 reprocessing (reprocess_merge_regions? I think this isn't
+# actually zdiff3)
+#
+# TODO: Why does this detect new_variable / new_other_var as an A decision
+# followed by a B decision, rather than as a conflict?
+def merge3_to_merge(merge3: Merge3, labels: list[str]) -> Generator[list[str] | Conflict | Decision]:
+    def mkconflict(base: Sequence[str], a: Sequence[str], b: Sequence[str]) -> Conflict:
+        return Conflict(base_label, list(base), a_label, list(a), b_label, list(b))
+    label_iter = iter(labels)
+    a_label = next(label_iter, '')
+    base_label = next(label_iter, '')
+    b_label = next(label_iter, '')
+    for group in cast(Generator[MergeGroupType], merge3.merge_groups()):
+        match group[0]:
+            case 'conflict':
+                _, base_lines, a_lines, b_lines = group
+                conflict = mkconflict(base_lines, a_lines, b_lines)
+                yield Decision(conflict)
+            case 'a':
+                _, a_lines = group
+                conflict = mkconflict([], a_lines, [])
+                yield Decision(conflict, Resolution.USE_A)
+            case 'same':
+                _, a_lines = group
+                conflict = mkconflict([], a_lines, a_lines)
+                yield Decision(conflict, Resolution.USE_A)
+            case 'b':
+                _, b_lines = group
+                conflict = mkconflict([], [], b_lines)
+                yield Decision(conflict, Resolution.USE_B)
+            case 'unchanged':
+                _, lines = group
+                yield [*lines]
