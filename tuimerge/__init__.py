@@ -2070,7 +2070,8 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
                 decision.resolution = Resolution.USE_B
             yield decision
         matchlines = base[zmatch:zend]
-        yield matchlines
+        if matchlines:
+            yield matchlines
         iz = zend
         ia = aend
         ib = bend
