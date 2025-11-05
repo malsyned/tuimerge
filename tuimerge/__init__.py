@@ -1989,8 +1989,7 @@ def main() -> None:
                 open(oldfile.filename) as oldf,
                 open(yourfile.filename) as yourf,
             ):
-                merge3 = Merge3(oldf.read().splitlines(), myf.read().splitlines(), yourf.read().splitlines())
-                merge = [*merge3_to_merge(merge3, labels)]
+                merge = [*internal_merge(oldf.read().splitlines(), myf.read().splitlines(), yourf.read().splitlines(), labels)]
         else:
             diff3 = do_diff3(
                 myfile.filename, oldfile.filename, yourfile.filename, labels)
@@ -2037,41 +2036,39 @@ MergeGroupType = Union[
 ]
 
 
-# TODO: This doesn't correctly report the base lines if one of 'a', 'same', or
-# 'b' deleted lines in the base before adding new ones. Maybe
-# Merge3.merge_regions() does? Until this is fixed, the 'I' command won't work
-# correctly.
-#
+SyncRegion = tuple[int, int, int, int, int, int]
+
+
 # TODO: zdiff3 reprocessing (reprocess_merge_regions? I think this isn't
 # actually zdiff3)
 #
 # TODO: Why does this detect new_variable / new_other_var as an A decision
 # followed by a B decision, rather than as a conflict?
-def merge3_to_merge(merge3: Merge3, labels: list[str]) -> Generator[list[str] | Conflict | Decision]:
+def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str]) -> Generator[list[str] | Conflict | Decision]:
     def mkconflict(base: Sequence[str], a: Sequence[str], b: Sequence[str]) -> Conflict:
         return Conflict(base_label, list(base), a_label, list(a), b_label, list(b))
     label_iter = iter(labels)
     a_label = next(label_iter, '')
     base_label = next(label_iter, '')
     b_label = next(label_iter, '')
-    for group in cast(Generator[MergeGroupType], merge3.merge_groups()):
-        match group[0]:
-            case 'conflict':
-                _, base_lines, a_lines, b_lines = group
-                conflict = mkconflict(base_lines, a_lines, b_lines)
-                yield Decision(conflict)
-            case 'a':
-                _, a_lines = group
-                conflict = mkconflict([], a_lines, [])
-                yield Decision(conflict, Resolution.USE_A)
-            case 'same':
-                _, a_lines = group
-                conflict = mkconflict([], a_lines, a_lines)
-                yield Decision(conflict, Resolution.USE_A)
-            case 'b':
-                _, b_lines = group
-                conflict = mkconflict([], [], b_lines)
-                yield Decision(conflict, Resolution.USE_B)
-            case 'unchanged':
-                _, lines = group
-                yield [*lines]
+
+    merge3 = Merge3(base,a, b)
+
+    iz = ia = ib = 0
+    sync_regions = cast(list[SyncRegion], merge3.find_sync_regions())   # type: ignore
+    for zmatch, zend, amatch, aend, bmatch, bend in sync_regions:
+        zlines: list[str] = base[iz:zmatch]
+        alines: list[str] = a[ia:amatch]
+        blines: list[str] = b[ib:bmatch]
+        if zlines or alines or blines:
+            decision = Decision(mkconflict(zlines, alines, blines))
+            if alines == blines or zlines == blines:
+                decision.resolution = Resolution.USE_A
+            elif zlines == alines:
+                decision.resolution = Resolution.USE_B
+            yield decision
+        matchlines = base[zmatch:zend]
+        yield matchlines
+        iz = zend
+        ia = aend
+        ib = bend
