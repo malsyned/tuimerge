@@ -1990,6 +1990,7 @@ def main() -> None:
         # Promise the type system I know what I'm doing
         assert(myfile.filename and oldfile.filename and yourfile.filename)
         if view_only:
+            # TODO: If no diff3 is found, fall back to internal merge
             diff3 = do_diff3(
                 myfile.filename, oldfile.filename, yourfile.filename, labels)
             with NamedTemporaryFile(
