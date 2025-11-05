@@ -793,6 +793,15 @@ def common_prefix[T](l1: Iterable[T], l2: Iterable[T]) -> Generator[T]:
         yield i1
 
 
+def common_suffix[T](l1: list[T], l2: list[T]) -> list[T]:
+    suffix: list[T] = []
+    for i1, i2 in zip(reversed(l1), reversed(l2)):
+        if i1 != i2:
+            break
+        suffix.append(i1)
+    return list(reversed(suffix))
+
+
 @dataclass
 class Edit:
     prelude: list[str]
@@ -1167,7 +1176,7 @@ class TUIMerge:
             # TODO: Should the new prelude and epilogue be calculated from the
             # original prelude and epilogue chunks instead of the edited ones?
             new_prelude = list(common_prefix(prelude, edited_lines))
-            new_epilogue = [*reversed([*common_prefix(reversed(epilogue), reversed(edited_lines))])]
+            new_epilogue = common_suffix(epilogue, edited_lines)
             edit_text = edited_lines[len(new_prelude):len(edited_lines) - len(new_epilogue)]
             edit = Edit(new_prelude, edit_text, new_epilogue)
             self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
@@ -2041,9 +2050,6 @@ MergeGroupType = Union[
 SyncRegion = tuple[int, int, int, int, int, int]
 
 
-# TODO: zdiff3 reprocessing (reprocess_merge_regions? I think this isn't
-# actually zdiff3)
-#
 # TODO: Why does this detect new_variable / new_other_var as an A decision
 # followed by a B decision, rather than as a conflict?
 def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str]) -> Generator[list[str] | Conflict | Decision]:
@@ -2059,16 +2065,31 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
     iz = ia = ib = 0
     sync_regions = cast(list[SyncRegion], merge3.find_sync_regions())   # type: ignore
     for zmatch, zend, amatch, aend, bmatch, bend in sync_regions:
-        zlines: list[str] = base[iz:zmatch]
-        alines: list[str] = a[ia:amatch]
-        blines: list[str] = b[ib:bmatch]
+        zlines = base[iz:zmatch]
+        alines = a[ia:amatch]
+        blines = b[ib:bmatch]
         if zlines or alines or blines:
+            prefix = list(common_prefix(alines, blines))
+            zealous_ok = not (len(prefix) == len(alines) == len(blines))
+            if zealous_ok:
+                alines = alines[len(prefix):]
+                blines = blines[len(prefix):]
+                suffix = common_suffix(alines, blines)
+                alines = alines[:len(alines) - len(suffix)]
+                blines = blines[:len(blines) - len(suffix)]
+            else:
+                suffix: list[str] = []  # pylance can't tell this is always set
+
+            if zealous_ok and prefix:
+                yield Decision(mkconflict([], prefix, prefix), Resolution.USE_A)
             decision = Decision(mkconflict(zlines, alines, blines))
             if alines == blines or zlines == blines:
                 decision.resolution = Resolution.USE_A
             elif zlines == alines:
                 decision.resolution = Resolution.USE_B
             yield decision
+            if zealous_ok and suffix:
+                yield Decision(mkconflict([], suffix, suffix), Resolution.USE_A)
         matchlines = base[zmatch:zend]
         if matchlines:
             yield matchlines
