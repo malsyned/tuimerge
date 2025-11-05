@@ -897,17 +897,18 @@ class Decision:
             lineno += 1
         return lineno
 
+    def _draw_maybe_same(self, pane: Pane, selected: bool, lineno: int, contents: list[str], prefix: str, same_prefix: str, color: ColorPair, start_chunk: bool = True, end_chunk: bool = True) -> int:
+        if self.conflict.a == self.conflict.b:
+            prefix = same_prefix
+            if self.resolution not in (Resolution.USE_A_FIRST, Resolution.USE_B_FIRST):
+                color = ColorPair.DIFF_ADDED if contents else ColorPair.DIFF_REMOVED
+        return self._draw_with_gutter(pane, contents, color, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
+
     def _draw_a(self, pane: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
-        prefix = 'A' if self.conflict.a != self.conflict.b else '⇋' # '=' # '⇆'
-        return self._draw_with_gutter(pane, self.conflict.a, ColorPair.A, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
+        return self._draw_maybe_same(pane, selected, lineno, self.conflict.a, 'A', '⇋', ColorPair.A, start_chunk=start_chunk, end_chunk=end_chunk)
 
-    def _draw_b(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
-        prefix = 'B' if self.conflict.a != self.conflict.b else '⇌' # '=' # '⇄'
-        return self._draw_with_gutter(window, self.conflict.b, ColorPair.B, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
-
-    def _draw_same(self, window: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
-        prefix = '⇄'
-        return self._draw_with_gutter(window, self.conflict.a, ColorPair.A, prefix, selected, lineno, start_chunk=start_chunk, end_chunk=end_chunk)
+    def _draw_b(self, pane: Pane, selected: bool, lineno: int, start_chunk: bool = True, end_chunk: bool = True) -> int:
+        return self._draw_maybe_same(pane, selected, lineno, self.conflict.b, 'B', '⇌', ColorPair.B, start_chunk=start_chunk, end_chunk=end_chunk)
 
     def _draw_base(self, window: Pane, color: ColorPair, p: str, selected: bool, lineno: int) -> int:
         return self._draw_with_gutter(window, self.conflict.base, color, p, selected, lineno)
