@@ -1402,6 +1402,7 @@ class TUIMerge:
             # TODO: just open an editor on the whole file if there are no conflicts
             elif c == ord('e') and self._has_conflicts:
                 self._edit_selected_conflict()
+            # TODO: Open diff sub-menu on 'd', remove Shift+D binding
             elif c in (ord('d'), ord('v')):
                 self._view_diff(self._files[2])
             elif c == ord('D'):
