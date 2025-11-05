@@ -906,6 +906,9 @@ class Decision:
         return self._draw_with_gutter(window, self.edit, ColorPair.EDITED, prefix, selected, lineno)
 
     def draw(self, window: Pane, lineno: int, selected: bool) -> int:
+        # TODO: It'd be cool if this could indicate in some way that A and B
+        # were equal. Maybe even prevent toggling both changes on at once if
+        # they are?
         match self.resolution:
             case Resolution.UNRESOLVED:
                 lineno = self._draw_base(window, ColorPair.UNRESOLVED, '?', selected, lineno)
@@ -1310,6 +1313,7 @@ class TUIMerge:
         self._dialog = Dialog()
 
         self._set_focus(len(self._panes) - 1)
+        # TODO: Seek to first unresolved conflict
         self._select_conflict(0)
         self._draw_borders()
 
@@ -1377,6 +1381,8 @@ class TUIMerge:
             elif c == ord('x') and self._has_conflicts:
                 self._output_pane.swap_resolutions(self._selected_conflict)
             elif c in (ord('i'), curses.KEY_DC) and self._has_conflicts:
+                #TODO: Make it possible to toggle on all of A, B, and base lines
+                # ('I' isn't the right mnemonic at that point. "o" for "original"?)
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_BASE)
             elif c in (ord('u'), curses.KEY_BACKSPACE) and self._has_conflicts:
                 self._output_pane.resolve(self._selected_conflict, Resolution.UNRESOLVED)
@@ -1387,6 +1393,7 @@ class TUIMerge:
                 self._view_diff(self._files[2])
             elif c == ord('D'):
                 self._view_diff(self._files[0])
+            # TODO: Add a shortcut for viewing diff between incoming and merge
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
             # elif c == ord('!'):
