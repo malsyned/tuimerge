@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 import curses
 import curses.panel as panel
+import curses.ascii as ascii
 from merge3 import Merge3
 import argparse
 from dataclasses import dataclass, field
@@ -327,7 +328,7 @@ class ChangePane(Pane):
                 attr = curses.A_NORMAL
                 content_attr = curses.A_NORMAL
             noerror(self._gutter_pad.addch, i, 0, prefix, attr)
-            noerror(self._content_pad.addstr, i, 0, data, attr | content_attr)
+            addstr_sanitized(self._content_pad, i, 0, data, attr | content_attr)
         self._draw()
 
     def _draw_title(self) -> None:
@@ -406,7 +407,7 @@ class MergeOutput:
             else:
                 for line in e:
                     noerror(pane.gutter.addch, lineno, 0, ' ')
-                    noerror(pane.content.addstr, lineno, 0, line)
+                    addstr_sanitized(pane.content, lineno, 0, line)
                     lineno += 1
 
     def lines(self, ignore_unresolved: bool = False) -> Generator[str]:
@@ -456,6 +457,35 @@ class ScrollSnap(Enum):
     TOP = auto()
     CENTER = auto()
     BOTTOM = auto()
+
+
+def sanitize_string(s: str) -> tuple[list[int], str]:
+    # TODO: replace tabs with spaces using str.expandtabs(8), and make sure that
+    # santizied strings are used to compute line widths for dimensioning, so
+    # that there is room on the pads for tab-expanded strings.
+
+    def isctrl(c: str) -> bool:
+        return ascii.isctrl(c) or ord(c) == ascii.DEL
+
+    def as_printable(c: str) -> str:
+        if ord(c) == ascii.DEL:
+            return chr(0x2421)
+        if ascii.isctrl(c):
+            return chr(0x2400 + ord(c))
+        return c
+
+    ctrl_indexes = [i for i, c in enumerate(s) if isctrl(c)]
+    sanitized = ''.join(as_printable(c) for c in s)
+    return ctrl_indexes, sanitized
+
+
+def addstr_sanitized(win: curses.window, y: int, x: int, s: str, attr: int = 0):
+    ctrl_indexes, sanitized = sanitize_string(s)
+    for i, c in enumerate(sanitized):
+        if i in ctrl_indexes:
+            noerror(win.addch, y, x + i, sanitized[i], attr | curses.A_REVERSE)
+        else:
+            noerror(win.addch, y, x + i, c, attr)
 
 
 def titlebar_divisions(filenames: list[str], filename_room: int) -> list[int]:
@@ -1025,7 +1055,7 @@ class Decision:
             noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
             if text:
                 _, cols = pane.content.getmaxyx()
-                noerror(pane.content.addstr, lineno, 0, line, pane_color.attr | pane_attr)
+                addstr_sanitized(pane.content, lineno, 0, line, pane_color.attr | pane_attr)
                 noerror(pane.content.addstr, lineno, len(line), ' ' * (cols - len(line)), pane_color.attr | pane_attr)
             else:
                 pane.content.attron(pane_color.attr | pane_attr)
