@@ -609,11 +609,14 @@ class OutputPane(Pane):
 
         if resolution == Resolution.EDITED:
             assert(edit is not None)
-            if decision_chunk_index > 0:
+            if decision_chunk_index > 0 and edit.prelude:
+                assert not(isinstance(self._merge_output.chunks[decision_chunk_index - 1], Decision))
                 self._merge_output.edited_text_chunks[decision_chunk_index - 1] = edit.prelude
             else:
                 assert(not edit.prelude)
-            if decision_chunk_index < len(self._merge_output.chunks) - 1:
+
+            if decision_chunk_index < len(self._merge_output.chunks) - 1 and edit.epilogue:
+                assert not(isinstance(self._merge_output.chunks[decision_chunk_index + 1], Decision))
                 self._merge_output.edited_text_chunks[decision_chunk_index + 1] = edit.epilogue
             else:
                 assert(not edit.epilogue)
