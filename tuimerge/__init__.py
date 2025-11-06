@@ -1480,6 +1480,7 @@ class TUIMerge:
                 )
                 if result == 'y':
                     exit(1)  # indicate to git that the merge wasn't completed
+            # TODO: ^L to redraw the whole window and center the selected change
             elif c == ord('\t'):
                 self._set_focus((self._focused + 1) % len(self._panes))
             elif c == curses.KEY_BTAB:
@@ -2256,10 +2257,6 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
             else:
                 resolution = Resolution.UNRESOLVED
             decision = Decision(mkconflict(zlines, alines, blines), resolution)
-            # if alines == blines or zlines == blines:
-            #     decision.resolution = decision.default_resolution = Resolution.USE_A
-            # elif zlines == alines:
-            #     decision.resolution = decision.default_resolution = Resolution.USE_B
             yield decision
             if zealous_ok and suffix:
                 yield Decision(mkconflict([], suffix, suffix), Resolution.USE_A)
