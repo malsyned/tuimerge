@@ -792,11 +792,11 @@ def xterm_get_background_color(s: curses.window) -> tuple[int, int, int] | None:
         curses.halfdelay(1)  # short delay in case terminal doesn't respond
         print('\033]11;?\033\\', flush=True)  # OSC Ps = 11, Pt = ?
         for i, expected in enumerate('\033]11;'):
-            if not i:
-                curses.halfdelay(10)  # longer delay now that we're chatting
             c = s.getch()
             if c != ord(expected):
                 return None
+            if not i:
+                curses.halfdelay(10)  # longer delay now that we're chatting
         response: list[int] = []
         while True:
             c = s.getch()
