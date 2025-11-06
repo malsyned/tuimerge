@@ -753,6 +753,48 @@ class Resolution(Enum):
             return other
         raise ArithmeticError(f"Can't add {other} to {self}")
 
+
+def xterm_get_background_color(s: curses.window) -> tuple[int, int, int] | None:
+    try:
+        curses.halfdelay(1)  # short delay in case terminal doesn't respond
+        print('\033]11;?\033\\', flush=True)  # OSC Ps = 11, Pt = ?
+        for i, expected in enumerate('\033]11;'):
+            if not i:
+                curses.halfdelay(10)  # longer delay now that we're chatting
+            c = s.getch()
+            if c != ord(expected):
+                return None
+        response: list[int] = []
+        while True:
+            c = s.getch()
+            if c == 27:
+                if s.getch() != ord('\\'):  # ESC \ => ST
+                    return None
+                break
+            response.append(c)
+        rgbstr = ''.join(map(chr, response))
+        if rgbstr.startswith('rgb:'):
+            rgbstrs = rgbstr[len('rgb:'):].split('/')
+            if len(rgbstrs) != 3:
+                return None
+            if len(set(map(len, rgbstrs))) != 1:
+                return None
+            max = 2 ** (4 * len(rgbstrs[0])) - 1
+            return cast(
+                tuple[int, int, int],
+                tuple(int(s, base=16) / max for s in rgbstrs)
+            )
+        elif rgbstr.startswith('#'):
+            # TODO: Parse this form
+            return None
+        else:
+            return None
+    except curses.error:
+        return None
+    finally:
+        curses.cbreak()
+
+
 class ColorPair(IntEnum):
     DIFF_REMOVED = 1
     DIFF_ADDED = auto()
@@ -765,8 +807,16 @@ class ColorPair(IntEnum):
     DIALOG_WARNING = auto()
     DIALOG_ERROR = auto()
 
+    DIFF_REMOVED_SELECTED = auto()
+    DIFF_ADDED_SELECTED = auto()
+    A_SELECTED = auto()
+    B_SELECTED = auto()
+    BASE_SELECTED = auto()
+    UNRESOLVED_SELECTED = auto()
+    EDITED_SELECTED = auto()
+
     @classmethod
-    def init(cls) -> None:
+    def init(cls, scr: curses.window) -> None:
         if not curses.has_colors():
             return
         # ordinary blue is garish on almost every terminal emulator I've tried,
@@ -783,11 +833,92 @@ class ColorPair(IntEnum):
         curses.init_pair(cls.DIALOG_WARNING, curses.COLOR_YELLOW, -1)
         curses.init_pair(cls.DIALOG_ERROR, curses.COLOR_RED, -1)
 
+        sel_bg_index = pick_selection_highlight(scr)
+
+        curses.init_pair(cls.DIFF_REMOVED_SELECTED, curses.COLOR_RED, sel_bg_index)
+        curses.init_pair(cls.DIFF_ADDED_SELECTED, curses.COLOR_GREEN, sel_bg_index)
+        curses.init_pair(cls.A_SELECTED, curses.COLOR_CYAN, sel_bg_index)
+        curses.init_pair(cls.B_SELECTED, curses.COLOR_BLUE + bright, sel_bg_index)
+        curses.init_pair(cls.BASE_SELECTED, -1, sel_bg_index)
+        curses.init_pair(cls.UNRESOLVED_SELECTED, curses.COLOR_MAGENTA, sel_bg_index)
+        curses.init_pair(cls.EDITED_SELECTED, curses.COLOR_YELLOW, sel_bg_index)
+
     @property
     def attr(self) -> int:
         if not curses.has_colors():
             return 0
         return curses.color_pair(self)
+
+    @property
+    def selected(self) -> ColorPair:
+        selected = SELECTED_COLOR_MAP.get(self, self)
+        return selected
+
+
+def pick_selection_highlight(scr: curses.window):
+    # On xterm-88color and xterm-256color, the default color map has a
+    # greyscale block at the upper end.
+    TERM_GREYSCALE_COLOR_MAP = {
+        256: (24, 256 - 24),
+        88: (8, 88 - 8),
+    }
+    greyscale_info = TERM_GREYSCALE_COLOR_MAP.get(curses.COLORS, None)
+    if not greyscale_info:
+        return -1
+    levels, start = greyscale_info
+    bgcolor = xterm_get_background_color(scr)
+    if not bgcolor:
+        return -1
+
+    bg_brightness = luminance(*bgcolor)
+    light_theme = is_light_theme(bg_brightness)
+    ADJUSTMENT_RATIO = 9  # try to be noticeable without hurting contrast ratio
+    ADJUSTMENT = 1 / ADJUSTMENT_RATIO
+    index_adjustment = 1 / min(levels, ADJUSTMENT_RATIO)
+    sel_grey = adjust_for_selection(bg_brightness, light_theme, index_adjustment)
+    # First, pick an indexed greyscale with the desired brightness
+    sel_bg_index = round(start + sel_grey * levels)
+    if not curses.can_change_color():
+        return sel_bg_index
+    # Next, if the terminal supports color changing, change that
+    # palette entry to be exactly what we'd want.
+    sel_rgb = (
+        adjust_for_selection(color, light_theme, ADJUSTMENT)
+        for color in bgcolor
+    )
+    sel_term_rgb = (int(s * 1000) for s in sel_rgb)
+    curses.init_color(sel_bg_index, *sel_term_rgb)
+    return sel_bg_index
+
+
+def luminance(r: float, g: float, b: float) -> float:
+    # https://stackoverflow.com/a/596243/27032359
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def is_light_theme(brightness: float) -> bool:
+    return brightness > 0.5  # hopefully nowhere near 0.5
+
+
+def adjust_for_selection(
+    color: float,
+    light_theme: bool = False,
+    adjustment: float = 1 / 8
+) -> float:
+    if light_theme:
+        return color - adjustment * color
+    return color + adjustment * (1 - color)
+
+
+SELECTED_COLOR_MAP = {
+    ColorPair.DIFF_REMOVED: ColorPair.DIFF_REMOVED_SELECTED,
+    ColorPair.DIFF_ADDED: ColorPair.DIFF_ADDED_SELECTED,
+    ColorPair.A: ColorPair.A_SELECTED,
+    ColorPair.B: ColorPair.B_SELECTED,
+    ColorPair.BASE: ColorPair.BASE_SELECTED,
+    ColorPair.UNRESOLVED: ColorPair.UNRESOLVED_SELECTED,
+    ColorPair.EDITED: ColorPair.EDITED_SELECTED
+}
 
 
 def common_prefix[T](l1: Iterable[T], l2: Iterable[T]) -> Generator[T]:
@@ -873,6 +1004,7 @@ class Decision:
     ) -> int:
         gutter_attr = curses.A_STANDOUT if selected else curses.A_BOLD
         pane_attr = curses.A_BOLD if selected else 0
+        pane_color = color.selected if selected else color
         for i, line in enumerate(text or ['']):  # loop at least once for empty chunk hardrule
             if i == 0:
                 this_prefix = prefix
@@ -889,11 +1021,13 @@ class Decision:
             noerror(pane.gutter.addstr, lineno, 0, this_prefix, color.attr | gutter_attr)
             noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
             if text:
-                noerror(pane.content.addstr, lineno, 0, line, color.attr | pane_attr)
+                _, cols = pane.content.getmaxyx()
+                noerror(pane.content.addstr, lineno, 0, line, pane_color.attr | pane_attr)
+                noerror(pane.content.addstr, lineno, len(line), ' ' * (cols - len(line)), pane_color.attr | pane_attr)
             else:
-                pane.content.attron(color.attr | pane_attr)
+                pane.content.attron(pane_color.attr | pane_attr)
                 pane.content.hline(lineno, 0, 0, pane.width)
-                pane.content.attroff(color.attr | pane_attr)
+                pane.content.attroff(pane_color.attr | pane_attr)
             lineno += 1
         return lineno
 
@@ -1296,7 +1430,7 @@ class TUIMerge:
     def run(self, stdscr: curses.window) -> None:
         self._stdscr = stdscr
         noerror(curses.use_default_colors)
-        ColorPair.init()
+        ColorPair.init(stdscr)
         noerror(curses.curs_set, 0)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
