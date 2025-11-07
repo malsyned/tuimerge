@@ -911,13 +911,13 @@ def pick_selection_highlight(scr: curses.window):
     # On xterm-88color and xterm-256color, the default color map has a
     # greyscale block at the upper end.
     TERM_GREYSCALE_COLOR_MAP = {
-        256: (24, 256 - 24),
-        88: (8, 88 - 8),
+        256: (6, 24, 256 - 24),
+        88: (4, 8, 88 - 8),
     }
     greyscale_info = TERM_GREYSCALE_COLOR_MAP.get(curses.COLORS, None)
     if not greyscale_info:
         return -1
-    levels, start = greyscale_info
+    rgb_levels, grey_levels, grey_start = greyscale_info
     bgcolor = xterm_get_background_color(scr)
     if not bgcolor:
         return -1
@@ -926,20 +926,34 @@ def pick_selection_highlight(scr: curses.window):
     light_theme = is_light_theme(bg_brightness)
     ADJUSTMENT_RATIO = 9  # try to be noticeable without hurting contrast ratio
     ADJUSTMENT = 1 / ADJUSTMENT_RATIO
-    index_adjustment = 1 / min(levels, ADJUSTMENT_RATIO)
-    sel_grey = adjust_for_selection(bg_brightness, light_theme, index_adjustment)
-    # First, pick an indexed greyscale with the desired brightness
-    sel_bg_index = round(start + sel_grey * levels)
-    if not curses.can_change_color():
-        return sel_bg_index
-    # Next, if the terminal supports color changing, change that
-    # palette entry to be exactly what we'd want.
-    sel_rgb = (
-        adjust_for_selection(color, light_theme, ADJUSTMENT)
+
+    # First, pick an indexed color that's the closest match
+    sel_cube = [
+        round(adjust_for_selection(color, light_theme, ADJUSTMENT) * (rgb_levels - 1))
         for color in bgcolor
-    )
-    sel_term_rgb = (int(s * 1000) for s in sel_rgb)
-    curses.init_color(sel_bg_index, *sel_term_rgb)
+    ]
+    if all(c == sel_cube[0] for c in sel_cube):
+        sel_grey = adjust_for_selection(bg_brightness, light_theme, ADJUSTMENT)
+        sel_bg_index = round(grey_start + sel_grey * grey_levels)
+    else:
+        cube_r, cube_g, cube_b = sel_cube
+        sel_bg_index = (
+            16
+            + cube_r * rgb_levels * rgb_levels
+            + cube_g * rgb_levels
+            + cube_b
+        )
+
+    # Next, if the terminal supports color changing, change that palette entry
+    # to be exactly what we'd want.
+    if curses.can_change_color():
+        sel_rgb = [
+            adjust_for_selection(color, light_theme, ADJUSTMENT)
+            for color in bgcolor
+        ]
+        sel_term_rgb = (int(s * 1000) for s in sel_rgb)
+        curses.init_color(sel_bg_index, *sel_term_rgb)
+
     return sel_bg_index
 
 
