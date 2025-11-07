@@ -309,7 +309,7 @@ class ChangePane(Pane):
             )
         ]
         height = len(contents) or 1
-        width = max(map(len, contents), default=1)
+        width = max(map(printable_len, contents), default=1)
         self._hscroll = 0
         self._vscroll = 0
         self._gutter_pad.erase()
@@ -386,7 +386,7 @@ class MergeOutput:
         chunk_widths = (
             e.width
             if isinstance(e, Decision)
-            else max((len(line) for line in e), default=0)
+            else max((printable_len(line) for line in e), default=0)
             for e in self.edited_chunks()
         )
         return 1 + max(chunk_widths, default=0)
@@ -465,9 +465,11 @@ def sanitize_string(s: str) -> tuple[list[int], str]:
     # that there is room on the pads for tab-expanded strings.
 
     def isctrl(c: str) -> bool:
-        return ascii.isctrl(c) or ord(c) == ascii.DEL
+        return c != '\t' and (ascii.isctrl(c) or ord(c) == ascii.DEL)
 
     def as_printable(c: str) -> str:
+        if c == '\t':
+            return c
         if ord(c) == ascii.DEL:
             return chr(0x2421)
         if ascii.isctrl(c):
@@ -479,13 +481,27 @@ def sanitize_string(s: str) -> tuple[list[int], str]:
     return ctrl_indexes, sanitized
 
 
+def printable_len(s: str) -> int:
+    return len(s.expandtabs(curses.get_tabsize()))
+
+
+# FIXME: Why is the ctrl-_ in my test file coming out in the wrong place and the
+# comma before it missing?
 def addstr_sanitized(win: curses.window, y: int, x: int, s: str, attr: int = 0):
+    tabsize = curses.get_tabsize()
     ctrl_indexes, sanitized = sanitize_string(s)
-    for i, c in enumerate(sanitized):
-        if i in ctrl_indexes:
-            noerror(win.addch, y, x + i, sanitized[i], attr | curses.A_REVERSE)
+    i = 0
+    for c in sanitized:
+        if c == '\t':
+            adv = tabsize - (x + i) % tabsize
+            noerror(win.addstr, y, x + i, ' ' * adv, attr)
+            i += adv
+        elif i in ctrl_indexes:
+            noerror(win.addch, y, x + i, c, attr | curses.A_REVERSE)
+            i += 1
         else:
             noerror(win.addch, y, x + i, c, attr)
+            i += 1
 
 
 def titlebar_divisions(filenames: list[str], filename_room: int) -> list[int]:
@@ -1005,7 +1021,7 @@ class Decision:
         return max(1, len(text))
 
     def _text_width(self, text: list[str]) -> int:
-        return max(map(len, text), default=len('-'))
+        return max(map(printable_len, text), default=len('-'))
 
     @property
     def width(self) -> int:
@@ -1056,7 +1072,8 @@ class Decision:
             if text:
                 _, cols = pane.content.getmaxyx()
                 addstr_sanitized(pane.content, lineno, 0, line, pane_color.attr | pane_attr)
-                noerror(pane.content.addstr, lineno, len(line), ' ' * (cols - len(line)), pane_color.attr | pane_attr)
+                length = printable_len(line)
+                noerror(pane.content.addstr, lineno, length, ' ' * (cols - length), pane_color.attr | pane_attr)
             else:
                 pane.content.attron(pane_color.attr | pane_attr)
                 pane.content.hline(lineno, 0, 0, pane.width)
