@@ -488,8 +488,11 @@ def printable_len(s: str) -> int:
 # FIXME: Why is the ctrl-_ in my test file coming out in the wrong place and the
 # comma before it missing?
 def addstr_sanitized(win: curses.window, y: int, x: int, s: str, attr: int = 0):
-    tabsize = curses.get_tabsize()
     ctrl_indexes, sanitized = sanitize_string(s)
+    # many fonts just do not care to make bold RV ctrl characters at all legible
+    ctrl_attr = (attr & ~curses.A_BOLD) | curses.A_REVERSE
+    tabsize = curses.get_tabsize()
+
     i = 0
     for c in sanitized:
         if c == '\t':
@@ -497,7 +500,7 @@ def addstr_sanitized(win: curses.window, y: int, x: int, s: str, attr: int = 0):
             noerror(win.addstr, y, x + i, ' ' * adv, attr)
             i += adv
         elif i in ctrl_indexes:
-            noerror(win.addch, y, x + i, c, attr | curses.A_REVERSE)
+            noerror(win.addch, y, x + i, c, ctrl_attr)
             i += 1
         else:
             noerror(win.addch, y, x + i, c, attr)
