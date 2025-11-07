@@ -2073,7 +2073,7 @@ def do_diff2(
         stdout = outfile or subprocess.PIPE
         diff_result = subprocess.run(
             [
-                *diff2_prog, context_arg, *label_args, *color_opts,
+                *diff2_prog, '-a', context_arg, *label_args, *color_opts,
                 '--', myfile, yourfile
             ],
             stdout=stdout, stderr=subprocess.PIPE,
@@ -2082,6 +2082,9 @@ def do_diff2(
         if diff_result.returncode > 1:
             if outfile:
                 outfile.seek(0)
+            # TODO: Retry with args that are acceptable to `git diff` like '-a'
+            # but without `label_args`
+
             # Retry with only POSIX arguments
             diff_result = subprocess.run(
                 [*diff2_prog, context_arg, myfile, yourfile],
