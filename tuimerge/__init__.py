@@ -67,10 +67,6 @@ from typing import (
 # Additional navigation with Home/End/PgUp/PgDn
 # (space) select next visible or page down
 
-# TODO:
-# Reconcile navigation and conflict selection
-# Add environment variables like TUIMERGE_EDITOR, TUIMERGE_PAGER, etc.
-
 # Wishlist: Menus
 
 def clamp[T: float](minimum: T, value: T, maximum: T) -> T:
@@ -298,7 +294,6 @@ class ChangePane(Pane):
             tmpnew.writelines(f'{line}\n' for line in new)
             tmpnew.close()
 
-            #TODO: Consider supporting non-unified diffs as well
             diff_output = do_diff2(
                 tmporig.name, tmpnew.name, context=len(orig) + len(new))
         contents = [
@@ -460,10 +455,6 @@ class ScrollSnap(Enum):
 
 
 def sanitize_string(s: str) -> tuple[list[int], str]:
-    # TODO: replace tabs with spaces using str.expandtabs(8), and make sure that
-    # santizied strings are used to compute line widths for dimensioning, so
-    # that there is room on the pads for tab-expanded strings.
-
     def isctrl(c: str) -> bool:
         return c != '\t' and (ascii.isctrl(c) or ord(c) == ascii.DEL)
 
@@ -1131,9 +1122,6 @@ class Decision:
         return self._draw_with_gutter(window, self.edit, ColorPair.EDITED, prefix, selected, lineno)
 
     def draw(self, window: Pane, lineno: int, selected: bool) -> int:
-        # TODO: It'd be cool if this could indicate in some way that A and B
-        # were equal. Maybe even prevent toggling both changes on at once if
-        # they are?
         match self.resolution:
             case Resolution.UNRESOLVED:
                 lineno = self._draw_base(window, ColorPair.UNRESOLVED, '?', selected, lineno)
@@ -1622,7 +1610,6 @@ class TUIMerge:
                 self._view_diff(self._files[2])
             elif c == ord('D'):
                 self._view_diff(self._files[0])
-            # TODO: Add a shortcut for viewing diff between incoming and merge
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
             # elif c == ord('!'):
