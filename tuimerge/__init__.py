@@ -806,11 +806,19 @@ class Resolution(Enum):
         raise ArithmeticError(f"Can't add {other} to {self}")
 
 
+def xterm_get_foreground_color(s: curses.window) -> tuple[int, int, int] | None:
+    return xterm_get_color(s, 10)
+
+
 def xterm_get_background_color(s: curses.window) -> tuple[int, int, int] | None:
+    return xterm_get_color(s, 11)
+
+
+def xterm_get_color(s: curses.window, osc: int) -> tuple[int, int, int] | None:
     try:
         curses.halfdelay(1)  # short delay in case terminal doesn't respond
-        print('\033]11;?\033\\', flush=True)  # OSC Ps = 11, Pt = ?
-        for i, expected in enumerate('\033]11;'):
+        print(f'\033]{osc};?\x07', flush=True)
+        for i, expected in enumerate(f'\033]{osc};'):
             c = s.getch()
             if c != ord(expected):
                 return None
@@ -822,6 +830,8 @@ def xterm_get_background_color(s: curses.window) -> tuple[int, int, int] | None:
             if c == 27:
                 if s.getch() != ord('\\'):  # ESC \ => ST
                     return None
+                break
+            elif c == 7:
                 break
             response.append(c)
         rgbstr = ''.join(map(chr, response))
@@ -845,6 +855,9 @@ def xterm_get_background_color(s: curses.window) -> tuple[int, int, int] | None:
         return None
     finally:
         curses.cbreak()
+        # Letting the response pass through curses via getch confuses it.
+        # clearok() gets it back on track.
+        s.clearok(1)
 
 
 class ColorPair(IntEnum):
@@ -908,8 +921,9 @@ class ColorPair(IntEnum):
 
 
 def pick_selection_highlight(scr: curses.window):
-    # On xterm-88color and xterm-256color, the default color map has a
-    # greyscale block at the upper end.
+    # On xterm-88color and xterm-256color, the default color map has a color
+    # cube starting after the 16 SGR colors, and then a greyscale block at the
+    # upper end.
     TERM_GREYSCALE_COLOR_MAP = {
         256: (6, 24, 256 - 24),
         88: (4, 8, 88 - 8),
@@ -921,19 +935,23 @@ def pick_selection_highlight(scr: curses.window):
     bgcolor = xterm_get_background_color(scr)
     if not bgcolor:
         return -1
+    fgcolor = xterm_get_foreground_color(scr)
+    if not fgcolor:
+        return -1
 
     bg_brightness = luminance(*bgcolor)
-    light_theme = is_light_theme(bg_brightness)
+    fg_brightness = luminance(*fgcolor)
     ADJUSTMENT_RATIO = 9  # try to be noticeable without hurting contrast ratio
     ADJUSTMENT = 1 / ADJUSTMENT_RATIO
 
     # First, pick an indexed color that's the closest match
     sel_cube = [
-        round(adjust_for_selection(color, light_theme, ADJUSTMENT) * (rgb_levels - 1))
+        round(adjust_for_selection(color, fg_brightness, ADJUSTMENT)
+              * (rgb_levels - 1))
         for color in bgcolor
     ]
     if all(c == sel_cube[0] for c in sel_cube):
-        sel_grey = adjust_for_selection(bg_brightness, light_theme, ADJUSTMENT)
+        sel_grey = adjust_for_selection(bg_brightness, fg_brightness, ADJUSTMENT)
         sel_bg_index = round(grey_start + sel_grey * grey_levels)
     else:
         cube_r, cube_g, cube_b = sel_cube
@@ -948,10 +966,10 @@ def pick_selection_highlight(scr: curses.window):
     # to be exactly what we'd want.
     if curses.can_change_color():
         sel_rgb = [
-            adjust_for_selection(color, light_theme, ADJUSTMENT)
+            adjust_for_selection(color, fg_brightness, ADJUSTMENT)
             for color in bgcolor
         ]
-        sel_term_rgb = (int(s * 1000) for s in sel_rgb)
+        sel_term_rgb = [int(s * 1000) for s in sel_rgb]
         curses.init_color(sel_bg_index, *sel_term_rgb)
 
     return sel_bg_index
@@ -962,18 +980,12 @@ def luminance(r: float, g: float, b: float) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-def is_light_theme(brightness: float) -> bool:
-    return brightness > 0.5  # hopefully nowhere near 0.5
-
-
 def adjust_for_selection(
     color: float,
-    light_theme: bool = False,
+    fgcolor: float,
     adjustment: float = 1 / 8
 ) -> float:
-    if light_theme:
-        return color - adjustment * color
-    return color + adjustment * (1 - color)
+    return color + adjustment * (fgcolor - color)
 
 
 SELECTED_COLOR_MAP = {
