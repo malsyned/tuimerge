@@ -1495,11 +1495,15 @@ class TUIMerge:
     def _getch(self) -> int:
         while True:
             c = self._stdscr.getch()
-            if c == curses.KEY_RESIZE:
-                self._resized()
-                self._update()
-            else:
-                return c
+            lines, cols = self._stdscr.getmaxyx()
+            min_height = ChangePane.MIN_HEIGHT + OutputPane.MIN_HEIGHT
+            min_width = ChangePane.MIN_WIDTH + OutputPane.MIN_WIDTH + 1
+            if lines > min_height and cols > min_width:
+                if c == curses.KEY_RESIZE:
+                    self._resized()
+                    self._update()
+                else:
+                    return c
 
     def show_dialog(
         self,
