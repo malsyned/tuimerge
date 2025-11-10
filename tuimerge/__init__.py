@@ -478,8 +478,6 @@ def printable_len(s: str) -> int:
     return len(s.expandtabs(curses.get_tabsize()))
 
 
-# FIXME: Why is the ctrl-_ in my test file coming out in the wrong place and the
-# comma before it missing?
 def addstr_sanitized(win: curses.window, y: int, x: int, s: str, attr: int = 0):
     ctrl_indexes, sanitized = sanitize_string(s)
     # many fonts just do not care to make bold RV ctrl characters at all legible
