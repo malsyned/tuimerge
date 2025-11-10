@@ -344,7 +344,9 @@ class MergeOutput:
         self.chunks = merge
         self.decision_indices: Sequence[int] = [i for (i, c) in enumerate(self.chunks) if isinstance(c, Decision)]
         self.decision_chunk_indices = MappingProxyType({i: v for i, v in enumerate(self.decision_indices)})
-        self.edited_text_chunks: list[None | list[str]] = [None] * len(self.chunks)
+        self.hide_start_lines: list[int] = [0] * len(self.chunks)
+        self.hide_end_lines: list[int] = [0] * len(self.chunks)
+
 
     def decisions(self) -> Generator[Decision]:
         return (c for c in self.chunks if isinstance(c, Decision))
@@ -357,17 +359,17 @@ class MergeOutput:
         return chunk
 
     def edited_chunks(self) -> Generator[list[str] | Decision]:
-        for chunk, edit in zip(self.chunks, self.edited_text_chunks):
-            if edit is not None:
-                yield edit
-            else:
-                yield chunk
+        for i in range(len(self.chunks)):
+            yield self.edited_chunk(i)
 
     def edited_chunk(self, n: int) -> list[str] | Decision:
-        edit = self.edited_text_chunks[n]
-        if edit is not None:
-            return edit
-        return self.chunks[n]
+        chunk = self.chunks[n]
+        if isinstance(chunk, Decision):
+            return chunk
+        hide_start = self.hide_start_lines[n]
+        hide_end = self.hide_end_lines[n]
+        edit = chunk[hide_start:len(chunk) - hide_end]
+        return edit
 
     @property
     def height(self) -> int:
@@ -649,17 +651,17 @@ class OutputPane(Pane):
 
         if resolution == Resolution.EDITED:
             assert(edit is not None)
-            if decision_chunk_index > 0 and edit.prelude:
+            if decision_chunk_index > 0 and edit.hide_before:
                 assert not(isinstance(self._merge_output.chunks[decision_chunk_index - 1], Decision))
-                self._merge_output.edited_text_chunks[decision_chunk_index - 1] = edit.prelude
+                self._merge_output.hide_end_lines[decision_chunk_index - 1] += edit.hide_before
             else:
-                assert(not edit.prelude)
+                assert(not edit.hide_before)
 
-            if decision_chunk_index < len(self._merge_output.chunks) - 1 and edit.epilogue:
+            if decision_chunk_index < len(self._merge_output.chunks) - 1 and edit.hide_after:
                 assert not(isinstance(self._merge_output.chunks[decision_chunk_index + 1], Decision))
-                self._merge_output.edited_text_chunks[decision_chunk_index + 1] = edit.epilogue
+                self._merge_output.hide_start_lines[decision_chunk_index + 1] += edit.hide_after
             else:
-                assert(not edit.epilogue)
+                assert(not edit.hide_after)
             decision.edit = edit.text
             # TODO: Detect when resolution is equal to one of the stock ones,
             # rewrite resolution to be one of those instead
@@ -677,11 +679,11 @@ class OutputPane(Pane):
                     return
 
                 try:
-                    self._merge_output.edited_text_chunks[decision_chunk_index - 1] = None
+                    self._merge_output.hide_end_lines[decision_chunk_index - 1] = 0
                 except IndexError:
                     pass
                 try:
-                    self._merge_output.edited_text_chunks[decision_chunk_index + 1] = None
+                    self._merge_output.hide_start_lines[decision_chunk_index + 1] = 0
                 except IndexError:
                     pass
 
@@ -1008,9 +1010,9 @@ def common_suffix[T](l1: list[T], l2: list[T]) -> list[T]:
 
 @dataclass
 class Edit:
-    prelude: list[str]
+    hide_before: int
     text: list[str]
-    epilogue: list[str]
+    hide_after: int
 
 
 @dataclass
@@ -1172,6 +1174,7 @@ class Decision:
         yield f'======='
         yield from self.conflict.b
         yield f'>>>>>>> {self.conflict.b_label}'
+
 
 def wrap(text: str, width: int) -> Generator[str]:
     for line in text.split('\n'):
@@ -1389,12 +1392,13 @@ class TUIMerge:
                 # improvement I've been contemplating?
                 return
 
-            # TODO: Should the new prelude and epilogue be calculated from the
-            # original prelude and epilogue chunks instead of the edited ones?
-            new_prelude = list(common_prefix(prelude, edited_lines))
-            new_epilogue = common_suffix(epilogue, edited_lines)
-            edit_text = edited_lines[len(new_prelude):len(edited_lines) - len(new_epilogue)]
-            edit = Edit(new_prelude, edit_text, new_epilogue)
+            prelude_match = len(list(common_prefix(prelude, edited_lines)))
+            epilogue_match = len(common_suffix(epilogue, edited_lines))
+            edit = Edit(
+                len(prelude) - prelude_match,
+                edited_lines[prelude_match:len(edited_lines) - epilogue_match],
+                len(epilogue) - epilogue_match
+            )
             self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
 
             conflict_markers = has_conflict_markers(edited_lines)
