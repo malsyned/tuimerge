@@ -643,28 +643,69 @@ class OutputPane(Pane):
         decision = self._merge_output.get_decision(conflict)
         self.resolve(conflict, decision.default_resolution)
 
-    def resolve(self, conflict: int, resolution: Resolution, edit: Optional[Edit] = None) -> None:
+    def resolve(self, conflict: int, resolution: Resolution, edit: Optional[Edit] = None) -> Resolution:
+        mo = self._merge_output
         pre_visibility = self.conflict_visibility(conflict)
-        decision_chunk_index = self._merge_output.decision_chunk_indices[conflict]
-        decision = self._merge_output.get_decision(conflict)
+        decision_chunk_index = mo.decision_chunk_indices[conflict]
+        decision = mo.get_decision(conflict)
         assert(isinstance(decision, Decision))
 
         if resolution == Resolution.EDITED:
             assert(edit is not None)
-            if decision_chunk_index > 0 and edit.hide_before:
-                assert not(isinstance(self._merge_output.chunks[decision_chunk_index - 1], Decision))
-                self._merge_output.hide_end_lines[decision_chunk_index - 1] += edit.hide_before
+            if decision_chunk_index > 0:
+                if edit.hide_before:
+                    assert not(isinstance(mo.chunks[decision_chunk_index - 1], Decision))
+                    mo.hide_end_lines[decision_chunk_index - 1] += edit.hide_before
+                # move the prelude/edit border to minimize edit size
+                prelude = cast(list[str], mo.chunks[decision_chunk_index - 1])
+                while (
+                    mo.hide_end_lines[decision_chunk_index - 1]
+                    and len(edit.text)
+                    and edit.text[0] == prelude[
+                        len(prelude) - mo.hide_end_lines[decision_chunk_index - 1]
+                    ]
+                ):
+                    mo.hide_end_lines[decision_chunk_index - 1] -= 1
+                    edit.text = edit.text[1:]
             else:
                 assert(not edit.hide_before)
 
-            if decision_chunk_index < len(self._merge_output.chunks) - 1 and edit.hide_after:
-                assert not(isinstance(self._merge_output.chunks[decision_chunk_index + 1], Decision))
-                self._merge_output.hide_start_lines[decision_chunk_index + 1] += edit.hide_after
+            if decision_chunk_index < len(mo.chunks) - 1:
+                if edit.hide_after:
+                    assert not(isinstance(mo.chunks[decision_chunk_index + 1], Decision))
+                    mo.hide_start_lines[decision_chunk_index + 1] += edit.hide_after
+                # move the edit/epilogue border to minimize edit size
+                epilogue = cast(list[str], mo.chunks[decision_chunk_index + 1])
+                while (
+                    mo.hide_start_lines[decision_chunk_index + 1]
+                    and len(edit.text)
+                    and edit.text[-1] == epilogue[
+                        mo.hide_start_lines[decision_chunk_index + 1] - 1
+                    ]
+                ):
+                    mo.hide_start_lines[decision_chunk_index + 1] -= 1
+                    edit.text = edit.text[:len(edit.text) - 1]
             else:
                 assert(not edit.hide_after)
+
             decision.edit = edit.text
-            # TODO: Detect when resolution is equal to one of the stock ones,
-            # rewrite resolution to be one of those instead
+
+            # If the edit matches a stock resolution, use that instead.
+            try:
+                new_hide_before = mo.hide_end_lines[decision_chunk_index - 1]
+            except IndexError:
+                new_hide_before = 0
+            try:
+                new_hide_after = mo.hide_start_lines[decision_chunk_index + 1]
+            except IndexError:
+                new_hide_after = 0
+            for candidate in Resolution:
+                if (
+                    [*decision.lines(candidate)] == [*decision.lines(resolution)]
+                    and new_hide_before == new_hide_after == 0
+                ):
+                    resolution = candidate
+                    break
         else:
             assert(edit is None)
 
@@ -676,19 +717,19 @@ class OutputPane(Pane):
                     color=ColorPair.DIALOG_WARNING
                 )
                 if result != 'y':
-                    return
+                    return decision.resolution
 
                 try:
-                    self._merge_output.hide_end_lines[decision_chunk_index - 1] = 0
+                    mo.hide_end_lines[decision_chunk_index - 1] = 0
                 except IndexError:
                     pass
                 try:
-                    self._merge_output.hide_start_lines[decision_chunk_index + 1] = 0
+                    mo.hide_start_lines[decision_chunk_index + 1] = 0
                 except IndexError:
                     pass
 
         decision.resolution = resolution
-        self._resize_content(self._merge_output.height, self._merge_output.width)
+        self._resize_content(mo.height, mo.width)
         if self._fully_resolved():
             self._color = self._resolved_color
         else:
@@ -709,6 +750,8 @@ class OutputPane(Pane):
             self.scroll_to_conflict(conflict, scroll_hint)
         else:
             self._draw()
+
+        return decision.resolution
 
     def _draw_merge_output(self) -> None:
         self._merge_output.draw(self, self._selected_conflict)
@@ -1143,8 +1186,14 @@ class Decision:
                 lineno = self._draw_edit(window, selected, lineno)
         return lineno
 
-    def lines(self, ignore_unresolved: bool = False) -> Generator[str]:
-        match self.resolution:
+    def lines(
+        self,
+        resolution: Optional[Resolution] = None,
+        ignore_unresolved: bool = False
+    ) -> Generator[str]:
+        if not resolution:
+            resolution = self.resolution
+        match resolution:
             case Resolution.UNRESOLVED:
                 if ignore_unresolved:
                     yield from self.conflict.base
@@ -1391,10 +1440,11 @@ class TUIMerge:
                 edited_lines[prelude_match:len(edited_lines) - epilogue_match],
                 len(epilogue) - epilogue_match
             )
-            self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
+            resolution = \
+                self._output_pane.resolve(self._selected_conflict, Resolution.EDITED, edit)
 
             conflict_markers = has_conflict_markers(edited_lines)
-            if conflict_markers:
+            if conflict_markers and resolution == Resolution.EDITED:
                 conflict_text = ''.join(f'    {line}\n' for line in conflict_markers)
                 dialog_result = self.show_dialog(
                     'The edited resolution contains conflict markers:\n'
