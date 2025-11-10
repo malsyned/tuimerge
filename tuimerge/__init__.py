@@ -1351,12 +1351,11 @@ class TUIMerge:
         selected_decision = self._merge_output.get_decision(self._selected_conflict)
         decision_chunk_index = self._merge_output.decision_chunk_indices[self._selected_conflict]
 
-        orig_lines: list[str] = []  # will be filled in on the first iteration
+        first_try = True
         while True:
             prelude = self._get_chunk_if_text(decision_chunk_index - 1)
             epilogue = self._get_chunk_if_text(decision_chunk_index + 1)
             editor_lines = [*prelude, *selected_decision.lines(), *epilogue]
-            orig_lines = orig_lines or editor_lines
             editor_program = editor()
             with NamedTemporaryFile(
                 'w+', delete_on_close=False,
@@ -1382,14 +1381,7 @@ class TUIMerge:
                 with open(editor_file.name, 'r') as f:
                     edited_lines = f.read().splitlines()
 
-            if edited_lines == orig_lines:
-                # FIXME: BUG: If the file is edited twice, and the second time
-                # is back to the original text, the first edit will be left as
-                # the resolution, rather than discarding the resolution
-                # entirely.
-                #
-                # Can this fix be subsumed by the edit-matches-other-resolution
-                # improvement I've been contemplating?
+            if edited_lines == editor_lines and first_try:
                 return
 
             prelude_match = len(list(common_prefix(prelude, edited_lines)))
@@ -1413,6 +1405,7 @@ class TUIMerge:
                     esc=True, enter=False, center=False,
                 )
                 if dialog_result in ['y', 'e']:
+                    first_try = False
                     continue
             break
 
