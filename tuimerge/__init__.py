@@ -2240,7 +2240,10 @@ def main() -> None:
                 open(oldfile.filename) as oldf,
                 open(yourfile.filename) as yourf,
             ):
-                merge = [*internal_merge(oldf.read().splitlines(), myf.read().splitlines(), yourf.read().splitlines(), labels)]
+                old = oldf.read().splitlines()
+                mine = myf.read().splitlines()
+                yours = yourf.read().splitlines()
+                merge = [*internal_merge(old, mine, yours, labels)]
         else:
             diff3 = do_diff3(
                 myfile.filename, oldfile.filename, yourfile.filename, labels)
