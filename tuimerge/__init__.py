@@ -1679,6 +1679,8 @@ class TUIMerge:
                 self._show_help()
             # elif c == ord('!'):
             #     self.show_dialog('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
+            elif c == CTRL('L'):
+                self._force_redraw()
             elif c in (ord('w'), ord('s')):
                 if self._save():
                     exit(0)  # indicate to git that merge was successful
@@ -1719,6 +1721,15 @@ class TUIMerge:
                             pane.scroll_horiz(2)
                         else:
                             pane.scroll_vert(1)
+
+    def _force_redraw(self):
+        panel.update_panels()
+        self._stdscr.clearok(True)
+        curses.doupdate()
+        self._output_pane.scroll_to_conflict(
+                    self._selected_conflict,
+                    (ScrollSnap.CENTER, ScrollSnap.CENTER)
+                )
 
     def _show_help(self) -> None:
         # TODO: What if the help text is longer than the terminal?
