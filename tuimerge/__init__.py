@@ -340,8 +340,8 @@ class ChangePane(Pane):
 
 
 class MergeOutput:
-    def __init__(self, merge: list[list[str] | Conflict | Decision]) -> None:
-        self.chunks = [Decision(c) if isinstance(c, Conflict) else c for c in merge]
+    def __init__(self, merge: list[list[str] | Decision]) -> None:
+        self.chunks = merge
         self.decision_indices: Sequence[int] = [i for (i, c) in enumerate(self.chunks) if isinstance(c, Decision)]
         self.decision_chunk_indices = MappingProxyType({i: v for i, v in enumerate(self.decision_indices)})
         self.edited_text_chunks: list[None | list[str]] = [None] * len(self.chunks)
@@ -1193,7 +1193,7 @@ class TUIMerge:
         file_a: Revision,
         file_b: Revision,
         file_base: Revision,
-        merge: list[list[str] | Conflict | Decision],
+        merge: list[list[str] | Decision],
         outfile: Optional[str] = None
     ):
         self._outfile = outfile
@@ -1899,10 +1899,10 @@ class MergeParser:
             raise OverflowError('attempted second pushback')
         self._pushed_back = tok
 
-    def parse(self) -> list[list[str] | Conflict | Decision]:
+    def parse(self) -> list[list[str] | Decision]:
         return list(self._parse())
 
-    def _parse(self) -> Generator[list[str] | Conflict | Decision]:
+    def _parse(self) -> Generator[list[str] | Decision]:
         try:
             while (tok := self._next_token()).type != 'eof':
                 match tok.type:
@@ -1943,16 +1943,17 @@ class MergeParser:
         self._pushback_token(tok)
         return body
 
-    def _parse_conflict(self) -> Conflict:
+    def _parse_conflict(self) -> Decision:
         # TODO: Treat missing bases as empty
         a_label, a = self._parse_a()
         base_label, base = self._parse_base()
         b_label, b = self._parse_b()
-        return Conflict(
+        conflict = Conflict(
             a_label=a_label,       a=a,
             b_label=b_label,       b=b,
             base_label=base_label, base=base,
         )
+        return Decision(conflict)
 
     def _parse_a(self) -> tuple[str, list[str]]:
         return self._parse_header_and_body('a')
@@ -1984,7 +1985,7 @@ def merge_from_diff(
     diff: list[str],
     mine_label: str, mine: list[str],
     yours_label: str, yours: list[str]
-) -> list[list[str] | Conflict | Decision]:
+) -> list[list[str] | Decision]:
     return list(_merge_from_diff(diff, mine_label, mine, yours_label, yours))
 
 
@@ -1992,7 +1993,7 @@ def _merge_from_diff(
     diff: list[str],
     mine_label: str, mine: list[str],
     yours_label: str, yours: list[str]
-) -> Generator[list[str] | Conflict | Decision]:
+) -> Generator[list[str] | Decision]:
     next_mine_lineno = 0
     for mine_lineno, mine_count, yours_lineno, yours_count in parse_diff(diff):
             prelude_lines = mine[next_mine_lineno:mine_lineno]
@@ -2000,7 +2001,11 @@ def _merge_from_diff(
                 yield prelude_lines
             mine_lines = mine[mine_lineno:mine_lineno + mine_count]
             yours_lines = yours[yours_lineno:yours_lineno + yours_count]
-            yield Conflict("!!!BUG!!!", [], mine_label, mine_lines, yours_label, yours_lines)
+            yield Decision(
+                Conflict("!!!BUG!!!", [],
+                         mine_label, mine_lines,
+                         yours_label, yours_lines)
+            )
             next_mine_lineno = mine_lineno + mine_count
     rest = mine[next_mine_lineno:]
     if rest:
@@ -2209,7 +2214,7 @@ def main() -> None:
         or (args.three and not args.BASE)
     )
 
-    merge: list[list[str] | Conflict | Decision]
+    merge: list[list[str] | Decision]
     if oldfile:
         # Promise the type system I know what I'm doing
         assert(myfile.filename and oldfile.filename and yourfile.filename)
@@ -2286,9 +2291,7 @@ MergeGroupType = Union[
 SyncRegion = tuple[int, int, int, int, int, int]
 
 
-# TODO: Why does this detect new_variable / new_other_var as an A decision
-# followed by a B decision, rather than as a conflict?
-def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str]) -> Generator[list[str] | Conflict | Decision]:
+def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str]) -> Generator[list[str] | Decision]:
     def mkconflict(base: Sequence[str], a: Sequence[str], b: Sequence[str]) -> Conflict:
         return Conflict(base_label, list(base), a_label, list(a), b_label, list(b))
     label_iter = iter(labels)
