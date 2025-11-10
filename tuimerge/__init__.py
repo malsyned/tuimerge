@@ -1320,6 +1320,18 @@ class TUIMerge:
     def _selected_conflict(self) -> int:
         return self._output_pane.selected_conflict
 
+    def _select_unresolved_conflict(self, dir: int) -> None:
+        conflict = self._selected_conflict
+        try:
+            while True:
+                conflict += dir
+                decision = self._merge_output.get_decision(conflict)
+                if decision.resolution == Resolution.UNRESOLVED:
+                    break
+        except IndexError:
+            return
+        self._select_conflict(conflict)
+
     def _select_conflict(self, n: int, scroll_minimal: bool = False) -> None:
         if not self._has_conflicts:
             return
@@ -1633,6 +1645,10 @@ class TUIMerge:
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n') and self._has_conflicts:
                 self._select_conflict(self._selected_conflict + 1)
+            elif c == ord('P'):
+                self._select_unresolved_conflict(-1)
+            elif c == ord('N'):
+                self._select_unresolved_conflict(1)
             elif c == ord('a') and self._has_conflicts:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A)
             elif c == ord('b') and self._has_conflicts:
@@ -1708,25 +1724,25 @@ class TUIMerge:
         # TODO: What if the help text is longer than the terminal?
         # TODO: Run actions associated with most keys
         help_text = '\n'.join([
-            'N        Jump to next conflict',
-            'P        Jump to previous conflict',
-            'Space    Select visible conflict or page down',
-            'A        ' + Resolution.USE_A.value,
-            'B        ' + Resolution.USE_B.value,
-            'Shift+A  ' + Resolution.USE_A_FIRST.value,
-            'Shift+B  ' + Resolution.USE_B_FIRST.value,
-            'I        ' + Resolution.USE_BASE.value,
-            'R        Reset to default resolution',
-            'U        Unresolve conflict',
-            'E        Open conflict in external editor',
-            'D        View diff between Base and Merge',
-            'Shift+D  View diff between Current and Merge',
-            'X        Swap resolution order',
-            'S        Save changes and quit',
-            'Q        Quit without saving changes',
-            'Tab      Cycle focus between panes',
-            'Arrows   Scroll focused pane',
-            '?        Show this help',
+            'N,P        Jump to next/previous conflict',
+            'Shift+N,P  Jump to next/previous unresolved conflict',
+            'Space      Select visible conflict or page down',
+            'A          ' + Resolution.USE_A.value,
+            'B          ' + Resolution.USE_B.value,
+            'Shift+A    ' + Resolution.USE_A_FIRST.value,
+            'Shift+B    ' + Resolution.USE_B_FIRST.value,
+            'I          ' + Resolution.USE_BASE.value,
+            'R          Reset to default resolution',
+            'U          Unresolve conflict',
+            'E          Open conflict in external editor',
+            'D          View diff between Base and Merge',
+            'Shift+D    View diff between Current and Merge',
+            'X          Swap resolution order',
+            'S          Save changes and quit',
+            'Q          Quit without saving changes',
+            'Tab        Cycle focus between panes',
+            'Arrows     Scroll focused pane',
+            '?          Show this help',
         ])
         self.show_dialog(help_text, None, 'cq', center=False, wide=True)
 
