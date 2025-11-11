@@ -1333,14 +1333,19 @@ class TUIMerge:
         return self._output_pane.selected_conflict
 
     def _select_unresolved_conflict(self, dir: int) -> None:
-        conflict = self._selected_conflict
+        if dir:
+            conflict = self._selected_conflict
+        else:
+            conflict = -1
         try:
             while True:
-                conflict += dir
+                conflict += dir or 1
                 decision = self._merge_output.get_decision(conflict)
                 if decision.resolution == Resolution.UNRESOLVED:
                     break
         except IndexError:
+            if not dir:
+                self._select_conflict(0)
             return
         self._select_conflict(conflict)
 
@@ -1601,8 +1606,7 @@ class TUIMerge:
         self._dialog = Dialog()
 
         self._set_focus(len(self._panes) - 1)
-        # TODO: Seek to first unresolved conflict
-        self._select_conflict(0)
+        self._select_unresolved_conflict(0)
         self._draw_borders()
 
         while True:
