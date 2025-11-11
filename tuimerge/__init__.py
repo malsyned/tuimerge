@@ -1626,7 +1626,6 @@ class TUIMerge:
                 )
                 if result == 'y':
                     exit(1)  # indicate to git that the merge wasn't completed
-            # TODO: ^L to redraw the whole window and center the selected change
             elif c == ord('\t'):
                 self._set_focus((self._focused + 1) % len(self._panes))
             elif c == curses.KEY_BTAB:
