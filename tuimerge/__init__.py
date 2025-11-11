@@ -1663,9 +1663,9 @@ class TUIMerge:
                 self._select_conflict(self._selected_conflict - 1)
             elif c == ord('n') and self._has_conflicts:
                 self._select_conflict(self._selected_conflict + 1)
-            elif c == ord('P'):
+            elif c == ord('P') and self._has_conflicts:
                 self._select_unresolved_conflict(-1)
-            elif c == ord('N'):
+            elif c == ord('N') and self._has_conflicts:
                 self._select_unresolved_conflict(1)
             elif c == ord('a') and self._has_conflicts:
                 self._output_pane.toggle_resolution(self._selected_conflict, Resolution.USE_A)
