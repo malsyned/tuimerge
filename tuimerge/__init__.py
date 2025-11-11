@@ -80,10 +80,14 @@ class Dialog:
         self._panel = panel.new_panel(self._win)
         self._panel.hide()
         self._color = ColorPair.DIALOG_INFO
+        self._title = None
         self._text = ' '
         self._prompt: str | None = None
         self._wide = False
         self._center = True
+
+    def set_title(self, title: str | None) -> None:
+        self._title = title
 
     def set_contents(self, text: str, prompt: Optional[str], center: bool = False, wide: bool = False) -> None:
         self._text = text
@@ -98,21 +102,29 @@ class Dialog:
         max_width = screen_ncols - 4 if self._wide else screen_ncols * 2 // 3
         lines = list(wrap(self._text, max_width))
 
-        contents_height = (len(lines) + (2 if self._prompt else 0)) or 1
-        contents_width = max([*map(len, lines), len(self._prompt or '')]) or 1
+        title_height = 2 if self._title else 0
+        title_width = len(self._title) if self._title else 0
+        contents_height = (len(lines) + title_height + (2 if self._prompt else 0)) or 1
+        contents_width = max([title_width, *map(len, lines), len(self._prompt or '')]) or 1
         height = min(contents_height + 2, screen_nlines)
-        width = contents_width + 4
+        width = max(title_width, contents_width) + 4
         row = (screen_nlines - height) // 2
         col = (screen_ncols - width) // 2
 
         self._win = curses.newwin(height, width, row, col)
-        self._pad = curses.newpad(contents_height, contents_width)
+        self._pad = curses.newpad(contents_height + title_height, contents_width)
         self._win.attron(self._color.attr)
         self._win.box()
         self._win.attroff(self._color.attr)
+        if self._title:
+            col = (contents_width - title_width) // 2
+            self._pad.addstr(0, col, self._title, curses.A_BOLD)
+            self._pad.attron(self._color.attr)
+            self._pad.hline(1, 0, 0, contents_width)
+            self._pad.attroff(self._color.attr)
         for i, line in enumerate(lines):
             col = (contents_width - len(line)) // 2 if self._center else 0
-            self._pad.addstr(i, col, line)
+            self._pad.addstr(i + title_height, col, line)
         if self._prompt:
             noerror(self._pad.addstr, contents_height - 1, contents_width - len(self._prompt), self._prompt)
         self._pad.overwrite(self._win, 0, 0, 1, 2, height - 2, width - 3)
@@ -1522,12 +1534,14 @@ class TUIMerge:
         text: str,
         prompt: Optional[str],
         inputs: str,
+        title: Optional[str] = None,
         color: ColorPair = ColorPair.DIALOG_INFO,
         esc: bool = True,
         enter: bool = True,
         center: bool = True,
         wide: bool = False,
     ) -> str | bool:
+        self._dialog.set_title(title)
         self._dialog.set_contents(text, prompt, center=center, wide=wide)
         self._dialog.set_color(color)
         self._dialog.resize(*self._stdscr.getmaxyx())
@@ -1670,11 +1684,8 @@ class TUIMerge:
             # TODO: just open an editor on the whole file if there are no conflicts
             elif c == ord('e') and self._has_conflicts:
                 self._edit_selected_conflict()
-            # TODO: Open diff sub-menu on 'd', remove Shift+D binding
-            elif c in (ord('d'), ord('v')):
-                self._view_diff(self._files[2])
-            elif c == ord('D'):
-                self._view_diff(self._files[0])
+            elif c == ord('d') and self._has_conflicts:
+                self._diff_dialog()
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
             # elif c == ord('!'):
@@ -1783,36 +1794,74 @@ class TUIMerge:
             f.writelines(f'{line}\n' for line in self._merge_output.lines())
         return True
 
-    def _view_diff(self, orig_rev: Revision) -> None:
+    def _diff_dialog(self) -> None:
+        dialog_text = '\n'.join([
+            'A   Diff Current with Merge',
+            'B   Diff Incoming with Merge',
+            'C   Diff Current with Incoming',
+            'D   Diff Base with Merge',
+        ])
+        r = self.show_dialog(
+            title = 'Diff Revisions',
+            text=dialog_text, inputs='dabcq', center=False, prompt=None)
+        if r == 'a':
+            self._view_diff_with_merge(self._files[0])
+        elif r == 'b':
+            self._view_diff_with_merge(self._files[1])
+        elif r == 'c':
+            self._view_a_b_diff()
+        # TOOD: 'c'
+        elif r == 'd':
+            self._view_diff_with_merge(self._files[2])
+
+    def _view_a_b_diff(self) -> None:
+        current = self._files[0]
+        incoming = self._files[1]
+        if not current.filename:
+            raise ValueError(f'No filename available for current file {current.label or ""}')
+        if not incoming.filename:
+            raise ValueError(f'No filename available for incoming file {incoming.label or ""}')
+        do_diff_with_pager(current.filename, incoming.filename)
+
+    def _view_diff_with_merge(self, orig_rev: Revision) -> None:
         if not orig_rev.filename:
             raise ValueError(f'No filename available for original file {orig_rev.label or ""}')
         orig_desc = orig_rev.label or orig_rev.filename or ''
         merge_desc = self._outfile or orig_desc
-        if orig_desc:
-            orig_desc += ' '
         if merge_desc:
             merge_desc += ' '
-        orig_desc += '(Base)'
         merge_desc += '(Merge)'
-
-        pager_program = pager()
-        # TODO: Is this too cheeky?
-        looks_like_less = 'less' in pager_program
 
         with (
             NamedTemporaryFile('w+', delete_on_close=False) as merged_file,
-            NamedTemporaryFile(
-                'w+', delete_on_close=False,
-                prefix=tempfile_prefix(self._files[2].filename), suffix='.diff'
-            ) as diff_file
         ):
             merged_file.writelines(f'{line}\n' for line in self._merge_output.lines(ignore_unresolved=True))
             merged_file.close()
 
+            do_diff_with_pager(
+                orig_rev.filename, merged_file.name,
+                labels=[orig_desc, merge_desc],
+                tmp_prefix=self._files[2].filename
+            )
+
+
+def do_diff_with_pager(
+    before: str, after: str,
+    labels: list[str] = [], tmp_prefix: Optional[str] = None
+) -> None:
+    if tmp_prefix is None:
+        tmp_prefix = after
+    with NamedTemporaryFile(
+        'w+', delete_on_close=False,
+        prefix=tempfile_prefix(tmp_prefix), suffix='.diff'
+    ) as diff_file:
+            pager_program = pager()
+            # TODO: Is this too cheeky?
+            looks_like_less = 'less' in pager_program
             try:
                 do_diff2(
-                    orig_rev.filename, merged_file.name, diff_file,
-                    labels=[orig_desc, merge_desc], color=looks_like_less
+                    before, after, diff_file,
+                    labels=labels, color=looks_like_less
                 )
             except subprocess.CalledProcessError:
                 # TODO: error dialog
