@@ -1688,8 +1688,6 @@ class TUIMerge:
                 self._diff_dialog()
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
-            # elif c == ord('!'):
-            #     self.show_dialog('Here is a big long chunk of text for the dialog box to display. How do you think it will do with it? Let\'s find out.\n\n--Love, Dennis', '(Y)es/(N)o/(C)ancel', 'ync')
             elif c == CTRL('L'):
                 self._force_redraw()
             elif c in (ord('w'), ord('s')):
