@@ -1542,7 +1542,7 @@ class TUIMerge:
         title: Optional[str] = None,
         color: ColorPair = ColorPair.DIALOG_INFO,
         esc: bool = True,
-        enter: bool = True,
+        enter: str | bool = True,
         center: bool = True,
         wide: bool = False,
     ) -> str | bool:
@@ -1567,6 +1567,8 @@ class TUIMerge:
         if c == 27:
             return False
         if c in [ord('\n'), ord(' ')]:
+            if isinstance(enter, str):
+                return enter
             return inputs[0]
         return chr(c)
 
@@ -1689,6 +1691,8 @@ class TUIMerge:
                 self._edit_selected_conflict()
             elif c == ord('d') and self._has_conflicts:
                 self._diff_dialog()
+            elif c == ord('\n') and self._has_conflicts:
+                self._select_resolution()
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
             elif c == CTRL('L'):
@@ -1794,6 +1798,51 @@ class TUIMerge:
             #FIXME: Deal properly with files that don't have newlines
             f.writelines(f'{line}\n' for line in self._merge_output.lines())
         return True
+
+    def _select_resolution(self) -> None:
+        bindings: dict[str, Resolution | bool] = {
+            'a': Resolution.USE_A,
+            'b': Resolution.USE_B,
+            'A': Resolution.USE_A_FIRST,
+            'B': Resolution.USE_B_FIRST,
+            'i': Resolution.USE_BASE,
+            'u': Resolution.UNRESOLVED,
+            'e': Resolution.EDITED,
+            'r': True,
+        }
+        inputs = ''.join(bindings.keys()) + 'q'
+
+        dialog_text = '\n'.join([
+            'A           ' + Resolution.USE_A.value,
+            'B           ' + Resolution.USE_B.value,
+            'Shift+A     ' + Resolution.USE_A_FIRST.value,
+            'Shift+B     ' + Resolution.USE_B_FIRST.value,
+            'I           ' + Resolution.USE_BASE.value,
+            'E           Open conflict in external editor',
+            'R           Reset to default resolution',
+            'U           Unresolve conflict',
+        ])
+
+        r = self.show_dialog(
+            title='Select Resolution',
+            text=dialog_text,
+            inputs=inputs,
+            prompt=None,
+            center=False,
+            enter=chr(27),
+        )
+
+        if not isinstance(r, str):
+            return
+
+        resolution = bindings.get(r, False)
+
+        if resolution == Resolution.EDITED:
+            self._edit_selected_conflict()
+        elif isinstance(resolution, Resolution):
+            self._output_pane.resolve(self._selected_conflict, resolution)
+        elif resolution == True:
+            self._output_pane.default_resolution(self._selected_conflict)
 
     def _diff_dialog(self) -> None:
         dialog_text = '\n'.join([
