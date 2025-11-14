@@ -2,9 +2,9 @@
 Have to roll our own pad-to-window copy routine because ncurses copywin()
 doesn't handle CJK full-width characters correctly.
 
-> These  functions  are  described  in  X/Open Curses, Issue 4, which adds const
-> qualifiers to the arguments.  It further specifies their  behavior in  the
-> presence  of characters with multibyte renditions (not yet sup‐ ported in this
+> These functions are described in X/Open Curses, Issue 4, which adds const
+> qualifiers to the arguments. It further specifies their behavior in the
+> presence of characters with multibyte renditions (not yet supported in this
 > implementation).
 >
 > curs_overlay(3X), ncurses 6.5
