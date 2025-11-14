@@ -9,6 +9,8 @@ doesn't handle CJK full-width characters correctly.
 >
 > curs_overlay(3X), ncurses 6.5
 
+See also: https://mail.gnu.org/archive/html/bug-ncurses/2002-05/msg00070.html
+
 Have to do it in C because Python's curses module doesn't expose in_wch().
 */
 
