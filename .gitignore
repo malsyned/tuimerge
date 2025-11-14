@@ -2,3 +2,7 @@
 __pycache__
 build
 *.egg-info
+*.o
+*.so
+_*.c
+*.whl

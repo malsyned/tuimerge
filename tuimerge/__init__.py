@@ -33,6 +33,11 @@ from typing import (
     overload,
 )
 
+
+from .util import clamp
+from .curses_extra import pad_to_win
+
+
 # display 3 windows:
 #     top left = new A hunk with diff from original
 #     top right = new B hunk with diff from original
@@ -68,10 +73,6 @@ from typing import (
 # (space) select next visible or page down
 
 # Wishlist: Menus
-
-def clamp[T: float](minimum: T, value: T, maximum: T) -> T:
-    return max(minimum, min(value, maximum))
-
 
 class Dialog:
     def __init__(self) -> None:
@@ -267,16 +268,6 @@ class Pane:
         pad_to_win(self._content_pad, self._content_panel.window(), self._vscroll, self._hscroll)
 
 
-def pad_to_win(pad: curses.window, win: curses.window, sminline: int, smincol: int) -> None:
-    winlines, wincols = win.getmaxyx()
-    padlines, padcols = pad.getmaxyx()
-    copylines = clamp(0, winlines, padlines - sminline)
-    copycols = clamp(0, wincols, padcols - smincol)
-    win.erase()
-    if copylines and copycols:
-        pad.overwrite(win, sminline, smincol, 0, 0, copylines - 1, copycols - 1)
-
-
 class ChangePane(Pane):
     def __init__(
         self,
@@ -297,8 +288,12 @@ class ChangePane(Pane):
 
     def set_change(self, orig: list[str], new: list[str]) -> None:
         with (
-            NamedTemporaryFile('w+', delete_on_close=False) as tmporig,
-            NamedTemporaryFile('w+', delete_on_close=False) as tmpnew,
+            NamedTemporaryFile(
+                'w+', delete_on_close=False, errors='surrogateescape'
+            ) as tmporig,
+            NamedTemporaryFile(
+                'w+', delete_on_close=False, errors='surrogateescape'
+            ) as tmpnew,
         ):
             tmporig.writelines(f'{line}\n' for line in orig)
             tmporig.close()
@@ -487,27 +482,57 @@ def sanitize_string(s: str) -> tuple[list[int], str]:
 
 
 def printable_len(s: str) -> int:
-    return len(s.expandtabs(curses.get_tabsize()))
-
-
-def addstr_sanitized(win: curses.window, y: int, x: int, s: str, attr: int = 0):
-    ctrl_indexes, sanitized = sanitize_string(s)
-    # many fonts just do not care to make bold RV ctrl characters at all legible
-    ctrl_attr = (attr & ~curses.A_BOLD) | curses.A_REVERSE
+    # Actually uses an off-screen curses buffer to draw the string as it would
+    # be drawn and then queries the cursor position. This felt to me like the
+    # most foolproof way to find out how big a pad curses was going to need.
+    tabcount = len(re.findall('\t', s))
     tabsize = curses.get_tabsize()
+    # make the buffer big enough for if every codepoint is a full-width
+    # character, and every tab moves a full tab size.
+    bufsize = max(1, 2 * len(s) + tabcount * tabsize)
+    pad = curses.newpad(1, bufsize)
+    addstr_sanitized(pad, 0, 0, s)
+    _, cols = pad.getyx()
+    return cols
 
-    i = 0
-    for c in sanitized:
-        if c == '\t':
-            adv = tabsize - (x + i) % tabsize
-            noerror(win.addstr, y, x + i, ' ' * adv, attr)
-            i += adv
-        elif i in ctrl_indexes:
-            noerror(win.addch, y, x + i, c, ctrl_attr)
-            i += 1
-        else:
-            noerror(win.addch, y, x + i, c, attr)
-            i += 1
+
+def addstr_sanitized(
+    win: curses.window, y: int, x: int, s: str, attr: int = 0
+) -> None:
+    ctrl_attr = (attr & ~curses.A_BOLD) | curses.A_REVERSE
+    win.move(y, x)
+
+    # The only way to get Python's ncurses wrapper to put all of the `wchar_t`s
+    # of a single grapheme cluster into the same `cchar_t` is by calling
+    # addstr(), so accumulate runs of legal characters and write them out all at
+    # once, instead of using addch() for every code point.
+    printable = ''
+    def flush_printable():
+        nonlocal printable
+        if not printable:
+            return
+        win.addstr(printable, attr)
+        printable = ''
+
+    for c in s:
+        try:
+            if ascii.isctrl(c) and not c in ('\t', '\n'):
+                flush_printable()
+                win.addstr(chr(0x2400 + ord(c)), ctrl_attr)
+            elif ord(c) == ascii.DEL:
+                flush_printable()
+                win.addstr('\u2421', ctrl_attr)
+            elif 0x80 <= ord(c) <= 0xa0  or 0xd800 <= ord(c) <= 0xdfff:
+                flush_printable()
+                win.addstr('\ufffd', ctrl_attr)
+            else:
+                printable += c
+        except curses.error:
+            pass
+    try:
+        flush_printable()
+    except curses.error:
+        pass
 
 
 def titlebar_divisions(filenames: list[str], filename_room: int) -> list[int]:
@@ -1145,9 +1170,9 @@ class Decision:
             noerror(pane.gutter.addstr, lineno, 0, this_prefix, color.attr | gutter_attr)
             noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
             if text:
-                _, cols = pane.content.getmaxyx()
                 addstr_sanitized(pane.content, lineno, 0, line, pane_color.attr | pane_attr)
-                length = printable_len(line)
+                _, cols = pane.content.getmaxyx()
+                _, length = pane.content.getyx()
                 noerror(pane.content.addstr, lineno, length, ' ' * (cols - length), pane_color.attr | pane_attr)
             else:
                 pane.content.attron(pane_color.attr | pane_attr)
@@ -1436,7 +1461,8 @@ class TUIMerge:
             with NamedTemporaryFile(
                 'w+', delete_on_close=False,
                 prefix=tempfile_prefix(self._outfile or self._files[2].filename),
-                suffix='.diff3'
+                suffix='.diff3',
+                errors='surrogateescape'
             ) as editor_file:
                 editor_file.writelines(f'{line}\n' for line in editor_lines)
                 editor_file.close()
@@ -1447,14 +1473,15 @@ class TUIMerge:
                         editor_program.split(' ')
                         + [f'+{len(prelude) + 1}', editor_file.name],
                         encoding=sys.getdefaultencoding(),
-                        check=True
+                        check=True,
+                        errors='surrogateescape'
                     )
                 except subprocess.CalledProcessError:
                     #TODO: error dialog
                     pass
                 finally:
                     curses.reset_prog_mode()
-                with open(editor_file.name, 'r') as f:
+                with open(editor_file.name, 'r', errors='surrogateescape') as f:
                     edited_lines = f.read().splitlines()
 
             if edited_lines == editor_lines and first_try:
@@ -1697,6 +1724,8 @@ class TUIMerge:
                 self._show_help()
             elif c == CTRL('L'):
                 self._force_redraw()
+            elif c == ord('!'):
+                print('Garbage!', flush=True)
             elif c in (ord('w'), ord('s')):
                 if self._save():
                     exit(0)  # indicate to git that merge was successful
@@ -1794,7 +1823,7 @@ class TUIMerge:
         )
         if result != 'y':
             return False
-        with open(outfile, 'w') as f:
+        with open(outfile, 'w', errors='surrogateescape') as f:
             #FIXME: Deal properly with files that don't have newlines
             f.writelines(f'{line}\n' for line in self._merge_output.lines())
         return True
@@ -1882,9 +1911,9 @@ class TUIMerge:
             merge_desc += ' '
         merge_desc += '(Merge)'
 
-        with (
-            NamedTemporaryFile('w+', delete_on_close=False) as merged_file,
-        ):
+        with NamedTemporaryFile(
+            'w+', delete_on_close=False, errors='surrogateescape'
+        ) as merged_file:
             merged_file.writelines(f'{line}\n' for line in self._merge_output.lines(ignore_unresolved=True))
             merged_file.close()
 
@@ -1903,7 +1932,8 @@ def do_diff_with_pager(
         tmp_prefix = after
     with NamedTemporaryFile(
         'w+', delete_on_close=False,
-        prefix=tempfile_prefix(tmp_prefix), suffix='.diff'
+        prefix=tempfile_prefix(tmp_prefix), suffix='.diff',
+        errors='surrogateescape'
     ) as diff_file:
             pager_program = pager()
             # TODO: Is this too cheeky?
@@ -1948,7 +1978,8 @@ def do_pager(file: str, pause_curses: bool = True) -> None:
             [pager(), file],
             encoding=sys.getdefaultencoding(),
             check=True,
-            env=pager_env
+            env=pager_env,
+            errors='surrogateescape'
         )
     finally:
         if pause_curses:
@@ -2222,6 +2253,7 @@ def do_diff3(
         + ['--', myfile, oldfile, yourfile],
         stdout=subprocess.PIPE,
         encoding=sys.getdefaultencoding(),
+        errors='surrogateescape'
     )
     return diff3_result.stdout.splitlines()
 
@@ -2273,7 +2305,8 @@ def do_diff2(
                 '--', myfile, yourfile
             ],
             stdout=stdout, stderr=subprocess.PIPE,
-            encoding=sys.getdefaultencoding()
+            encoding=sys.getdefaultencoding(),
+            errors='surrogateescape'
         )
         if diff_result.returncode > 1:
             if outfile:
@@ -2285,7 +2318,8 @@ def do_diff2(
             diff_result = subprocess.run(
                 [*diff2_prog, context_arg, myfile, yourfile],
                 stdout=stdout, stderr=subprocess.PIPE,
-                encoding=sys.getdefaultencoding()
+                encoding=sys.getdefaultencoding(),
+                errors='surrogateescape'
             )
             if diff_result.returncode > 1:
                 diff_result.check_returncode()
@@ -2399,7 +2433,8 @@ def main() -> None:
                 myfile.filename, oldfile.filename, yourfile.filename, labels)
             with NamedTemporaryFile(
                 'w+', delete_on_close=False,
-                prefix=tempfile_prefix(oldfile.filename), suffix='.diff3'
+                prefix=tempfile_prefix(oldfile.filename), suffix='.diff3',
+                errors='surrogateescape'
             ) as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff3)
                 viewfile.close()
@@ -2411,9 +2446,9 @@ def main() -> None:
 
         if not args.external_merge:
             with (
-                open(myfile.filename) as myf,
-                open(oldfile.filename) as oldf,
-                open(yourfile.filename) as yourf,
+                open(myfile.filename, errors='surrogateescape') as myf,
+                open(oldfile.filename, errors='surrogateescape') as oldf,
+                open(yourfile.filename, errors='surrogateescape') as yourf,
             ):
                 old = oldf.read().splitlines()
                 mine = myf.read().splitlines()
@@ -2427,7 +2462,10 @@ def main() -> None:
         oldfile = myfile
 
         assert(myfile.filename and yourfile.filename)
-        with (open(myfile.filename) as mf, open(yourfile.filename) as yf):
+        with (
+            open(myfile.filename, errors='surrogatetescape') as mf,
+            open(yourfile.filename, errors='surrogatetescape') as yf
+        ):
             mine = mf.read().splitlines()
             yours = yf.read().splitlines()
 
@@ -2439,7 +2477,8 @@ def main() -> None:
         if view_only:
             with NamedTemporaryFile(
                 'w+', delete_on_close=False,
-                prefix=tempfile_prefix(myfile.filename), suffix='.diff'
+                prefix=tempfile_prefix(myfile.filename), suffix='.diff',
+                errors='surrogateescape'
             ) as viewfile:
                 viewfile.writelines(f'{line}\n' for line in diff2)
                 viewfile.close()
@@ -2528,8 +2567,12 @@ class SubprocessSequenceMatcher:
     ) -> None:
         """Initialize the sequence matcher."""
         with (
-            NamedTemporaryFile('w+', delete_on_close=False) as tmp_a,
-            NamedTemporaryFile('w+', delete_on_close=False) as tmp_b,
+            NamedTemporaryFile(
+                'w+', delete_on_close=False, errors='surrogateescape'
+            ) as tmp_a,
+            NamedTemporaryFile(
+                'w+', delete_on_close=False, errors='surrogateescape'
+            ) as tmp_b,
         ):
             tmp_a.writelines(f'{line}\n' for line in a)
             tmp_a.close()
