@@ -11,6 +11,7 @@ ffibuilder.set_source(
     '#include "curses_extra.h"',
     sources=[os.path.join(this_dir, 'curses_extra.c')],
     libraries=['cursesw'],
+    include_dirs=[this_dir],
 )
 
 
