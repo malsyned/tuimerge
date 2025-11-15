@@ -138,6 +138,7 @@ class Dialog:
     def hide(self) -> None:
         self._panel.hide()
 
+
 class Pane:
     MIN_HEIGHT = 2
     MIN_WIDTH = 2
@@ -295,10 +296,10 @@ class ChangePane(Pane):
                 'w+', delete_on_close=False, errors='surrogateescape'
             ) as tmpnew,
         ):
-            tmporig.writelines(f'{line}\n' for line in orig)
+            tmporig.writelines(orig)
             tmporig.close()
 
-            tmpnew.writelines(f'{line}\n' for line in new)
+            tmpnew.writelines(new)
             tmpnew.close()
 
             diff_output = do_diff2(
@@ -514,9 +515,9 @@ def addstr_sanitized(
         win.addstr(printable, attr)
         printable = ''
 
-    for c in s:
+    for c in s.rstrip('\n'):
         try:
-            if ascii.isctrl(c) and not c in ('\t', '\n'):
+            if ascii.isctrl(c) and not c == '\t':
                 flush_printable()
                 win.addstr(chr(0x2400 + ord(c)), ctrl_attr)
             elif ord(c) == ascii.DEL:
@@ -1250,14 +1251,14 @@ class Decision:
                 yield from self.edit
 
     def conflict_lines(self) -> Generator[str]:
-        yield f'<<<<<<< {self.conflict.a_label}'
+        yield f'<<<<<<< {self.conflict.a_label}\n'
         yield from self.conflict.a
         if self.conflict.base:
-            yield f'||||||| {self.conflict.base_label}'
+            yield f'||||||| {self.conflict.base_label}\n'
             yield from self.conflict.base
-        yield f'======='
+        yield f'=======\n'
         yield from self.conflict.b
-        yield f'>>>>>>> {self.conflict.b_label}'
+        yield f'>>>>>>> {self.conflict.b_label}\n'
 
 
 def wrap(text: str, width: int) -> Generator[str]:
@@ -1464,7 +1465,7 @@ class TUIMerge:
                 suffix='.diff3',
                 errors='surrogateescape'
             ) as editor_file:
-                editor_file.writelines(f'{line}\n' for line in editor_lines)
+                editor_file.writelines(editor_lines)
                 editor_file.close()
                 curses.def_prog_mode()
                 curses.endwin()
@@ -1482,7 +1483,7 @@ class TUIMerge:
                 finally:
                     curses.reset_prog_mode()
                 with open(editor_file.name, 'r', errors='surrogateescape') as f:
-                    edited_lines = f.read().splitlines()
+                    edited_lines = f.readlines()
 
             if edited_lines == editor_lines and first_try:
                 return
@@ -1825,7 +1826,7 @@ class TUIMerge:
             return False
         with open(outfile, 'w', errors='surrogateescape') as f:
             #FIXME: Deal properly with files that don't have newlines
-            f.writelines(f'{line}\n' for line in self._merge_output.lines())
+            f.writelines(self._merge_output.lines())
         return True
 
     def _select_resolution(self) -> None:
@@ -1914,7 +1915,7 @@ class TUIMerge:
         with NamedTemporaryFile(
             'w+', delete_on_close=False, errors='surrogateescape'
         ) as merged_file:
-            merged_file.writelines(f'{line}\n' for line in self._merge_output.lines(ignore_unresolved=True))
+            merged_file.writelines(self._merge_output.lines(ignore_unresolved=True))
             merged_file.close()
 
             do_diff_with_pager(
@@ -2255,7 +2256,7 @@ def do_diff3(
         encoding=sys.getdefaultencoding(),
         errors='surrogateescape'
     )
-    return diff3_result.stdout.splitlines()
+    return diff3_result.stdout.splitlines(keepends=True)
 
 
 def diff2() -> str:
@@ -2325,7 +2326,7 @@ def do_diff2(
                 diff_result.check_returncode()
         if outfile:
             return None
-        return diff_result.stdout.splitlines()
+        return diff_result.stdout.splitlines(keepends=True)
 
 
 def flag_list(flag: str, args: list[str]) -> list[str]:
@@ -2436,7 +2437,7 @@ def main() -> None:
                 prefix=tempfile_prefix(oldfile.filename), suffix='.diff3',
                 errors='surrogateescape'
             ) as viewfile:
-                viewfile.writelines(f'{line}\n' for line in diff3)
+                viewfile.writelines(diff3)
                 viewfile.close()
                 # TODO: Use color where applicable
                 # TODO: Consider -F -X, unset POSIXLY_CORRECT
@@ -2450,9 +2451,9 @@ def main() -> None:
                 open(oldfile.filename, errors='surrogateescape') as oldf,
                 open(yourfile.filename, errors='surrogateescape') as yourf,
             ):
-                old = oldf.read().splitlines()
-                mine = myf.read().splitlines()
-                yours = yourf.read().splitlines()
+                old = oldf.readlines()
+                mine = myf.readlines()
+                yours = yourf.readlines()
                 merge = [*internal_merge(old, mine, yours, labels)]
         else:
             diff3 = do_diff3(
@@ -2466,8 +2467,8 @@ def main() -> None:
             open(myfile.filename, errors='surrogatetescape') as mf,
             open(yourfile.filename, errors='surrogatetescape') as yf
         ):
-            mine = mf.read().splitlines()
-            yours = yf.read().splitlines()
+            mine = mf.readlines()
+            yours = yf.readlines()
 
         diff2 = do_diff2(
             myfile.filename, yourfile.filename,
@@ -2480,7 +2481,7 @@ def main() -> None:
                 prefix=tempfile_prefix(myfile.filename), suffix='.diff',
                 errors='surrogateescape'
             ) as viewfile:
-                viewfile.writelines(f'{line}\n' for line in diff2)
+                viewfile.writelines(diff2)
                 viewfile.close()
                 # TODO: Use color where applicable
                 # TODO: Consider -F -X, unset POSIXLY_CORRECT
@@ -2561,8 +2562,8 @@ class SubprocessSequenceMatcher:
     def __init__(
         self,
         isjunk: Optional[Callable[[list[str]], bool]] = None,
-        a: Sequence[list[str]] = [],
-        b: Sequence[list[str]] = [],
+        a: Sequence[str] = [],
+        b: Sequence[str] = [],
         autojunk: bool = True,
     ) -> None:
         """Initialize the sequence matcher."""
@@ -2574,10 +2575,10 @@ class SubprocessSequenceMatcher:
                 'w+', delete_on_close=False, errors='surrogateescape'
             ) as tmp_b,
         ):
-            tmp_a.writelines(f'{line}\n' for line in a)
+            tmp_a.writelines(a)
             tmp_a.close()
 
-            tmp_b.writelines(f'{line}\n' for line in b)
+            tmp_b.writelines(b)
             tmp_b.close()
 
             diff_output = do_diff2(
