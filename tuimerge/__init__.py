@@ -74,6 +74,14 @@ from .curses_extra import pad_to_win
 
 # Wishlist: Menus
 
+
+def named_tmp(prefix: Optional[str] = None, suffix: Optional[str] = None) -> IO[str]:
+    return NamedTemporaryFile(
+        'w+', delete_on_close=False, errors='surrogateescape',
+        prefix=prefix, suffix=suffix
+    )
+
+
 class Dialog:
     def __init__(self) -> None:
         self._win = curses.newwin(1, 1, 0, 0)
@@ -288,14 +296,7 @@ class ChangePane(Pane):
             color, nlines, ncols, begin_line, begin_col)
 
     def set_change(self, orig: list[str], new: list[str]) -> None:
-        with (
-            NamedTemporaryFile(
-                'w+', delete_on_close=False, errors='surrogateescape'
-            ) as tmporig,
-            NamedTemporaryFile(
-                'w+', delete_on_close=False, errors='surrogateescape'
-            ) as tmpnew,
-        ):
+        with (named_tmp() as tmporig, named_tmp() as tmpnew):
             tmporig.writelines(orig)
             tmporig.close()
 
@@ -1459,11 +1460,9 @@ class TUIMerge:
             epilogue = self._get_chunk_if_text(decision_chunk_index + 1)
             editor_lines = [*prelude, *selected_decision.lines(), *epilogue]
             editor_program = editor()
-            with NamedTemporaryFile(
-                'w+', delete_on_close=False,
+            with named_tmp(
                 prefix=tempfile_prefix(self._outfile or self._files[2].filename),
                 suffix='.diff3',
-                errors='surrogateescape'
             ) as editor_file:
                 editor_file.writelines(editor_lines)
                 editor_file.close()
@@ -1911,9 +1910,7 @@ class TUIMerge:
             merge_desc += ' '
         merge_desc += '(Merge)'
 
-        with NamedTemporaryFile(
-            'w+', delete_on_close=False, errors='surrogateescape'
-        ) as merged_file:
+        with named_tmp() as merged_file:
             merged_file.writelines(self._merge_output.lines(ignore_unresolved=True))
             merged_file.close()
 
@@ -1930,10 +1927,8 @@ def do_diff_with_pager(
 ) -> None:
     if tmp_prefix is None:
         tmp_prefix = after
-    with NamedTemporaryFile(
-        'w+', delete_on_close=False,
-        prefix=tempfile_prefix(tmp_prefix), suffix='.diff',
-        errors='surrogateescape'
+    with named_tmp(
+        prefix=tempfile_prefix(tmp_prefix), suffix='.diff'
     ) as diff_file:
             pager_program = pager()
             # TODO: Is this too cheeky?
@@ -2431,10 +2426,8 @@ def main() -> None:
             # TODO: If no diff3 is found, fall back to internal merge
             diff3 = do_diff3(
                 myfile.filename, oldfile.filename, yourfile.filename, labels)
-            with NamedTemporaryFile(
-                'w+', delete_on_close=False,
-                prefix=tempfile_prefix(oldfile.filename), suffix='.diff3',
-                errors='surrogateescape'
+            with named_tmp(
+                prefix=tempfile_prefix(oldfile.filename), suffix='.diff3'
             ) as viewfile:
                 viewfile.writelines(diff3)
                 viewfile.close()
@@ -2475,10 +2468,8 @@ def main() -> None:
         )
 
         if view_only:
-            with NamedTemporaryFile(
-                'w+', delete_on_close=False,
-                prefix=tempfile_prefix(myfile.filename), suffix='.diff',
-                errors='surrogateescape'
+            with named_tmp(
+                prefix=tempfile_prefix(myfile.filename), suffix='.diff'
             ) as viewfile:
                 viewfile.writelines(diff2)
                 viewfile.close()
@@ -2566,14 +2557,7 @@ class SubprocessSequenceMatcher:
         autojunk: bool = True,
     ) -> None:
         """Initialize the sequence matcher."""
-        with (
-            NamedTemporaryFile(
-                'w+', delete_on_close=False, errors='surrogateescape'
-            ) as tmp_a,
-            NamedTemporaryFile(
-                'w+', delete_on_close=False, errors='surrogateescape'
-            ) as tmp_b,
-        ):
+        with (named_tmp() as tmp_a, named_tmp() as tmp_b):
             tmp_a.writelines(a)
             tmp_a.close()
 
