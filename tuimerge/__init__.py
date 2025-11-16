@@ -4,6 +4,7 @@ from abc import abstractmethod
 import curses
 import curses.panel as panel
 import curses.ascii as ascii
+from math import ceil
 from merge3 import Merge3
 import argparse
 from dataclasses import dataclass, field
@@ -153,7 +154,7 @@ class Dialog:
 
 class Pane:
     MIN_HEIGHT = 2
-    MIN_WIDTH = 2
+    MIN_WIDTH = 4
 
     def __init__(
         self,
@@ -171,10 +172,11 @@ class Pane:
         self._focused = False
         self._gutter_width = gutter_width
 
-        self._win, title, gutter, content = self._create_wins()
+        self._win, title, gutter, content, scroll = self._create_wins()
         self._title_panel = panel.new_panel(title)
         self._gutter_panel = panel.new_panel(gutter)
         self._content_panel = panel.new_panel(content)
+        self._scroll_panel = panel.new_panel(scroll)
         self._gutter_pad = curses.newpad(1, self._gutter_width)
         self._content_pad = curses.newpad(1, 1)
 
@@ -184,12 +186,13 @@ class Pane:
         self._begin_line = begin_line
         self._begin_col = begin_col
 
-    def _create_wins(self) -> tuple[curses.window, curses.window, curses.window, curses.window]:
+    def _create_wins(self) -> tuple[curses.window, curses.window, curses.window, curses.window, curses.window]:
         win = curses.newwin(self._nlines, self._ncols, self._begin_line, self._begin_col)
         title = win.derwin(1, self._ncols, 0, 0)
         gutter = win.derwin(self._nlines - 1, self._gutter_width, 1, 0)
-        content = win.derwin(self._nlines - 1, self._ncols - self._gutter_width, 1, self._gutter_width)
-        return win, title, gutter, content
+        content = win.derwin(self._nlines - 1, self._ncols - self._gutter_width - 1, 1, self._gutter_width)
+        scroll = win.derwin(self._nlines - 1, 1, 1, self._ncols - 1)
+        return win, title, gutter, content, scroll
 
     @property
     def preferred_height(self) -> int:
@@ -268,10 +271,11 @@ class Pane:
     def resize(self, nlines: int, ncols: int, begin_line: int, begin_col: int) -> None:
         self._set_size_attrs(nlines, ncols, begin_line, begin_col)
 
-        self._win, title, gutter, content = self._create_wins()
+        self._win, title, gutter, content, scroll = self._create_wins()
         self._title_panel.replace(title)
         self._content_panel.replace(content)
         self._gutter_panel.replace(gutter)
+        self._scroll_panel.replace(scroll)
 
         self._draw()
 
@@ -279,6 +283,26 @@ class Pane:
         self._draw_titlebar()
         pad_to_win(self._gutter_pad, self._gutter_panel.window(), self._vscroll, 0)
         pad_to_win(self._content_pad, self._content_panel.window(), self._vscroll, self._hscroll)
+        self._draw_scrollbar()
+
+    def _draw_scrollbar(self) -> None:
+        swin = self._scroll_panel.window()
+        cwin = self._content_panel.window()
+        cpad = self._content_pad
+        srows, _ = swin.getmaxyx()
+
+        cpad_rows, _ = cpad.getmaxyx()
+        cwin_rows, _ = cwin.getmaxyx()
+
+        thumb_size = max(1, ceil(srows * cwin_rows / cpad_rows))
+        thumb_start = min(srows - thumb_size, ceil(srows * self._vscroll / cpad_rows))
+        thumb_end = thumb_start + thumb_size
+
+        for row in range(srows):
+            if row >= thumb_start and row < thumb_end:
+                noerror(swin.addch, row, 0, ' ', curses.A_REVERSE)
+            else:
+                noerror(swin.addch, row, 0, curses.ACS_BOARD)
 
 
 class ChangePane(Pane):
