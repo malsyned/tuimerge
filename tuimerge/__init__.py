@@ -82,6 +82,10 @@ def named_tmp(prefix: Optional[str] = None, suffix: Optional[str] = None) -> IO[
     )
 
 
+def open_typical(file: str| Path, mode: str = 'r') -> IO[str]:
+    return open(file, mode, errors='surrogateescape')
+
+
 class Dialog:
     def __init__(self) -> None:
         self._win = curses.newwin(1, 1, 0, 0)
@@ -1481,7 +1485,7 @@ class TUIMerge:
                     pass
                 finally:
                     curses.reset_prog_mode()
-                with open(editor_file.name, 'r', errors='surrogateescape') as f:
+                with open_typical(editor_file.name) as f:
                     edited_lines = f.readlines()
 
             if edited_lines == editor_lines and first_try:
@@ -1822,7 +1826,7 @@ class TUIMerge:
         )
         if result != 'y':
             return False
-        with open(outfile, 'w', errors='surrogateescape') as f:
+        with open_typical(outfile, 'w') as f:
             #FIXME: Deal properly with files that don't have newlines
             f.writelines(self._merge_output.lines())
         return True
@@ -2439,9 +2443,9 @@ def main() -> None:
 
         if not args.external_merge:
             with (
-                open(myfile.filename, errors='surrogateescape') as myf,
-                open(oldfile.filename, errors='surrogateescape') as oldf,
-                open(yourfile.filename, errors='surrogateescape') as yourf,
+                open_typical(myfile.filename) as myf,
+                open_typical(oldfile.filename) as oldf,
+                open_typical(yourfile.filename) as yourf,
             ):
                 old = oldf.readlines()
                 mine = myf.readlines()
@@ -2456,8 +2460,8 @@ def main() -> None:
 
         assert(myfile.filename and yourfile.filename)
         with (
-            open(myfile.filename, errors='surrogatetescape') as mf,
-            open(yourfile.filename, errors='surrogatetescape') as yf
+            open_typical(myfile.filename) as mf,
+            open_typical(yourfile.filename) as yf
         ):
             mine = mf.readlines()
             yours = yf.readlines()
