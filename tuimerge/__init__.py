@@ -4,7 +4,7 @@ from abc import abstractmethod
 import curses
 import curses.panel as panel
 import curses.ascii as ascii
-from math import ceil
+from math import ceil, floor
 from merge3 import Merge3
 import argparse
 from dataclasses import dataclass, field
@@ -170,6 +170,7 @@ class Pane:
         self._hscroll = 0
         self._vscroll = 0
         self._focused = False
+        self._mouse_scrolling = False
         self._gutter_width = gutter_width
 
         self._win, title, gutter, content, scroll = self._create_wins()
@@ -286,23 +287,65 @@ class Pane:
         self._draw_scrollbar()
 
     def _draw_scrollbar(self) -> None:
-        swin = self._scroll_panel.window()
         cwin = self._content_panel.window()
+        cwin_rows, _ = cwin.getmaxyx()
         cpad = self._content_pad
+        cpad_rows, _ = cpad.getmaxyx()
+        swin = self._scroll_panel.window()
         srows, _ = swin.getmaxyx()
 
-        cpad_rows, _ = cpad.getmaxyx()
-        cwin_rows, _ = cwin.getmaxyx()
-
-        thumb_size = max(1, ceil(srows * cwin_rows / cpad_rows))
-        thumb_start = min(srows - thumb_size, ceil(srows * self._vscroll / cpad_rows))
-        thumb_end = thumb_start + thumb_size
+        self._thumb_size = max(1, ceil(srows * cwin_rows / cpad_rows))
+        thumb_start = min(srows - self._thumb_size, ceil(srows * self._vscroll / cpad_rows))
+        thumb_end = thumb_start + self._thumb_size
 
         for row in range(srows):
             if row >= thumb_start and row < thumb_end:
                 noerror(swin.addch, row, 0, ' ', curses.A_REVERSE)
             else:
                 noerror(swin.addch, row, 0, curses.ACS_BOARD)
+
+    def mouse_event(self, scr_mrow: int, scr_mcol: int, bstate: int) -> None:
+        mrow = scr_mrow - self._begin_line
+        mcol = scr_mcol - self._begin_col
+        scroll_mrow = mrow - 1  # adjust for title bar
+
+        if self._mouse_scrolling:
+            self._move_scroll_thumb_to(scroll_mrow)
+
+        if bstate & curses.BUTTON1_RELEASED:
+            self._mouse_scrolling = False
+
+        if mrow < 0 or mcol < 0 or mrow >= self._nlines or mcol >= self._ncols:
+            return
+
+        if bstate & curses.BUTTON1_PRESSED:
+            if mcol == self._ncols - 1:
+                self._move_scroll_thumb_to(scroll_mrow)
+                self._mouse_scrolling = True
+        if bstate & curses.BUTTON4_PRESSED:
+            if bstate & (curses.BUTTON_SHIFT | curses.BUTTON_CTRL):
+                self.scroll_horiz(-2)
+            else:
+                self.scroll_vert(-1)
+        if bstate & curses.BUTTON5_PRESSED:
+            if bstate & (curses.BUTTON_SHIFT | curses.BUTTON_CTRL):
+                self.scroll_horiz(2)
+            else:
+                self.scroll_vert(1)
+
+    def _move_scroll_thumb_to(self, row: int) -> None:
+        cpad = self._content_pad
+        cpad_rows, _ = cpad.getmaxyx()
+        swin = self._scroll_panel.window()
+        srows, _ = swin.getmaxyx()
+
+        move_thumb_start_to = row - self._thumb_size / 2
+        scroll_to = clamp(
+            0,
+            round(cpad_rows * move_thumb_start_to / srows),
+            cpad_rows - 1
+        )
+        self.scroll_vert_to(floor(scroll_to))
 
 
 class ChangePane(Pane):
@@ -1780,20 +1823,8 @@ class TUIMerge:
                 if bstate & curses.BUTTON1_RELEASED:
                     self._dragging = False
 
-                if bstate & curses.BUTTON4_PRESSED:
-                    if t := self._pane_under_cell(mrow, mcol):
-                        _, pane = t
-                        if bstate & (curses.BUTTON_SHIFT | curses.BUTTON_CTRL):
-                            pane.scroll_horiz(-2)
-                        else:
-                            pane.scroll_vert(-1)
-                if bstate & curses.BUTTON5_PRESSED:
-                    if t := self._pane_under_cell(mrow, mcol):
-                        _, pane = t
-                        if bstate & (curses.BUTTON_SHIFT | curses.BUTTON_CTRL):
-                            pane.scroll_horiz(2)
-                        else:
-                            pane.scroll_vert(1)
+                for pane in self._panes:
+                    pane.mouse_event(mrow, mcol, bstate)
 
     def _force_redraw(self):
         panel.update_panels()
