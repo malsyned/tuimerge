@@ -87,6 +87,12 @@ def open_typical(file: str| Path, mode: str = 'r') -> IO[str]:
     return open(file, mode, errors='surrogateescape')
 
 
+def clear_and_exit(stdscr: curses.window, code: int) -> NoReturn:
+    stdscr.clear()
+    stdscr.refresh()
+    exit(code)  # indicate to git that the merge wasn't completed
+
+
 class Dialog:
     def __init__(self) -> None:
         self._win = curses.newwin(1, 1, 0, 0)
@@ -1725,7 +1731,7 @@ class TUIMerge:
                     color=dialog_color
                 )
                 if result == 'y':
-                    exit(1)  # indicate to git that the merge wasn't completed
+                    clear_and_exit(stdscr, 1)  # indicate to git that the merge wasn't completed
             elif c == ord('\t'):
                 self._set_focus((self._focused + 1) % len(self._panes))
             elif c == curses.KEY_BTAB:
@@ -1799,7 +1805,7 @@ class TUIMerge:
                 print('Garbage!', flush=True)
             elif c in (ord('w'), ord('s')):
                 if self._save():
-                    exit(0)  # indicate to git that merge was successful
+                    clear_and_exit(stdscr, 0)  # indicate to git that merge was successful
 
             elif c == curses.KEY_MOUSE:
                 _, mcol, mrow, _, bstate = curses.getmouse()
