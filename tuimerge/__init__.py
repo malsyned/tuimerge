@@ -1048,6 +1048,27 @@ class OutputPane(Pane):
             ch = swin.inch(self._thumb_start, 0)
             noerror(swin.addch, self._thumb_start, 0, ' ', ch | curses.A_REVERSE)
 
+    def mouse_event(self, scr_mrow: int, scr_mcol: int, bstate: int) -> None:
+        crow, ccol = self._content_panel.window().getbegyx()
+        _, ccols = self._content_panel.window().getmaxyx()
+        mrow = scr_mrow - crow
+        mcol = scr_mcol - ccol
+        clicked_line = self._vscroll + mrow
+        if mcol < ccols and bstate & curses.BUTTON1_PRESSED:
+            lineno = 0
+            chunkno = 0
+            for chunk in self._merge_output.chunks:
+                if isinstance(chunk, Decision):
+                    end_lineno = lineno + chunk.linecount
+                    if lineno <= clicked_line < end_lineno:
+                        self._parent.select_conflict(chunkno, scroll_minimal=True)
+                        return
+                    chunkno += 1
+                    lineno += chunk.linecount
+                else:
+                    lineno += len(chunk)
+        return super().mouse_event(scr_mrow, scr_mcol, bstate)
+
 
 class Resolution(Enum):
     UNRESOLVED = "Unresolved"
@@ -1585,11 +1606,11 @@ class TUIMerge:
                     break
         except IndexError:
             if not dir:
-                self._select_conflict(0)
+                self.select_conflict(0)
             return
-        self._select_conflict(conflict)
+        self.select_conflict(conflict)
 
-    def _select_conflict(self, n: int, scroll_minimal: bool = False) -> None:
+    def select_conflict(self, n: int, scroll_minimal: bool = False) -> None:
         if not self._has_conflicts:
             return
         try:
@@ -1640,19 +1661,19 @@ class TUIMerge:
         selected_seen = False
         next_conflict = self._selected_conflict + 1
         if self._output_pane.conflict_is_visible(next_conflict):
-            self._select_conflict(next_conflict, scroll_minimal=True)
+            self.select_conflict(next_conflict, scroll_minimal=True)
         else:
             visible_conflicts = [*self._output_pane.visible_conflicts()]
             selected_seen = self._selected_conflict in visible_conflicts
             if visible_conflicts and not selected_seen:
-                self._select_conflict(visible_conflicts[0], scroll_minimal=True)
+                self.select_conflict(visible_conflicts[0], scroll_minimal=True)
             else:
                 self._output_pane.scroll_page(1)
                 visible_conflicts = [*self._output_pane.visible_conflicts()]
                 if selected_seen and self._selected_conflict in visible_conflicts:
                     return
                 if visible_conflicts:
-                    self._select_conflict(visible_conflicts[0], scroll_minimal=True)
+                    self.select_conflict(visible_conflicts[0], scroll_minimal=True)
 
     def _get_chunk_if_text(self, i: int) -> list[str]:
         try:
@@ -1903,9 +1924,9 @@ class TUIMerge:
             elif c == ord(' '):
                 self._select_next_or_page_down()
             elif c == ord('p') and self._has_conflicts:
-                self._select_conflict(self._selected_conflict - 1)
+                self.select_conflict(self._selected_conflict - 1)
             elif c == ord('n') and self._has_conflicts:
-                self._select_conflict(self._selected_conflict + 1)
+                self.select_conflict(self._selected_conflict + 1)
             elif c == ord('P') and self._has_conflicts:
                 self._select_unresolved_conflict(-1)
             elif c == ord('N') and self._has_conflicts:
