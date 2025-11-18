@@ -952,21 +952,21 @@ class OutputPane(Pane):
         def scrollbar_indicator_sort_key(value: tuple[int, Decision]) -> tuple[int, int]:
             lineno, decision = value
             if decision.resolution == Resolution.UNRESOLVED:
-                key = 4
+                key = 1
             elif decision.resolution == Resolution.EDITED:
-                key = 3
+                key = 2
             elif decision.resolution in (Resolution.USE_A, Resolution.USE_B):
                 if decision.conflict.a == decision.conflict.b:
-                    key = 1
+                    key = 4
                 else:
-                    key = 2
+                    key = 3
             elif decision.resolution in (Resolution.USE_A_FIRST, Resolution.USE_B_FIRST):
-                key = 2
+                key = 3
             elif decision.resolution == Resolution.USE_BASE:
-                key = 1
+                key = 4
             else:
                 raise KeyError(f'Unexpected resolution type {decision.resolution}')
-            return (key, -lineno)
+            return (key, lineno)
 
         swin = self._scroll_panel.window()
         srows, _ = swin.getmaxyx()
@@ -983,7 +983,11 @@ class OutputPane(Pane):
                 lineno += len(chunk)
 
         original_thumb_rows = set(range(self._thumb_start, self._thumb_end))
-        for lineno, decision in sorted(lineno_map.items(), key=scrollbar_indicator_sort_key):
+        for lineno, decision in sorted(
+            lineno_map.items(),
+            key=scrollbar_indicator_sort_key,
+            reverse=True,
+        ):
             if (
                 decision.resolution in (Resolution.USE_A, Resolution.USE_B)
                 and decision.conflict.a == decision.conflict.b
