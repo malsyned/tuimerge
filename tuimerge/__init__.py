@@ -300,15 +300,63 @@ class Pane:
         swin = self._scroll_panel.window()
         srows, _ = swin.getmaxyx()
 
-        self._thumb_size = max(1, ceil(srows * cwin_rows / cpad_rows))
-        thumb_start = min(srows - self._thumb_size, ceil(srows * self._vscroll / cpad_rows))
-        thumb_end = thumb_start + self._thumb_size
+        swin.erase()
+
+        top_line = self._scrollbar_vscroll
+        self._thumb_start = floor(srows * top_line / cpad_rows)
+        self._thumb_end = ceil(srows * (top_line + cwin_rows) / cpad_rows)
+        self._thumb_size = self._thumb_end - self._thumb_start + 1
 
         for row in range(srows):
-            if row >= thumb_start and row < thumb_end:
+            if row >= self._thumb_start and row < self._thumb_end:
                 noerror(swin.addch, row, 0, ' ', curses.A_REVERSE)
             else:
-                noerror(swin.addch, row, 0, curses.ACS_BOARD)
+                noerror(swin.addch, row, 0, curses.ACS_CKBOARD)
+
+    @property
+    def _scrollbar_vscroll(self) -> int:
+        """The scrollbar's vscroll is never past the end of the file"""
+        swin = self._scroll_panel.window()
+        srows, _ = swin.getmaxyx()
+        cpad = self._content_pad
+        cpad_rows, _ = cpad.getmaxyx()
+        top_line = self._vscroll
+        if top_line + srows > cpad_rows:
+            top_line = cpad_rows - srows
+        return top_line
+
+    def _move_scroll_thumb_to(self, row: int, start_scroll: bool = False) -> None:
+        cpad = self._content_pad
+        cpad_rows, _ = cpad.getmaxyx()
+        swin = self._scroll_panel.window()
+        srows, _ = swin.getmaxyx()
+
+        # The thumb can change size due to rounding, but scrolling feels nicer
+        # if the top of the thumb is always a consistent distance from the mouse
+        # cursor.
+        thumb_size_min = max(1, srows * srows // cpad_rows)
+
+        if start_scroll:
+            if row >= self._thumb_start and row < self._thumb_end:
+                self._thumb_mouse_offset = row - self._thumb_start
+                # Under certain circumstances, scrolling to the "same" thumb
+                # position can change the vertical scroll location by a small
+                # amount. So, avoid that at the beginning of a scroll when the
+                # thumb was clicked.
+                return
+            else:
+                self._thumb_mouse_offset = floor(thumb_size_min / 2)
+        else:
+            if self._thumb_mouse_offset > thumb_size_min:
+                self._thumb_mouse_offset = thumb_size_min
+
+        move_thumb_start_to = row - self._thumb_mouse_offset
+        scroll_to = clamp(
+            0,
+            ceil(cpad_rows * move_thumb_start_to / srows),
+            cpad_rows - 1
+        )
+        self.scroll_vert_to(scroll_to)
 
     def mouse_event(self, scr_mrow: int, scr_mcol: int, bstate: int) -> None:
         mrow = scr_mrow - self._begin_line
@@ -326,7 +374,7 @@ class Pane:
 
         if bstate & curses.BUTTON1_PRESSED:
             if mcol == self._ncols - 1:
-                self._move_scroll_thumb_to(scroll_mrow)
+                self._move_scroll_thumb_to(scroll_mrow, start_scroll=True)
                 self._mouse_scrolling = True
         if bstate & curses.BUTTON4_PRESSED:
             if bstate & (curses.BUTTON_SHIFT | curses.BUTTON_CTRL):
@@ -338,20 +386,6 @@ class Pane:
                 self.scroll_horiz(2)
             else:
                 self.scroll_vert(1)
-
-    def _move_scroll_thumb_to(self, row: int) -> None:
-        cpad = self._content_pad
-        cpad_rows, _ = cpad.getmaxyx()
-        swin = self._scroll_panel.window()
-        srows, _ = swin.getmaxyx()
-
-        move_thumb_start_to = row - self._thumb_size / 2
-        scroll_to = clamp(
-            0,
-            round(cpad_rows * move_thumb_start_to / srows),
-            cpad_rows - 1
-        )
-        self.scroll_vert_to(floor(scroll_to))
 
 
 class ChangePane(Pane):
@@ -911,6 +945,96 @@ class OutputPane(Pane):
         # Ensure some space between titlebar contents and resolution status
         noerror(titlewin.addch, 0, cols - 2 - len(status), self._title_bar_focus_char)
         noerror(titlewin.addstr, status)
+
+    def _draw_scrollbar(self) -> None:
+        def scrollbar_indicator_sort_key(value: tuple[int, Decision]) -> tuple[int, int]:
+            lineno, decision = value
+            if decision.resolution == Resolution.UNRESOLVED:
+                key = 4
+            elif decision.resolution == Resolution.EDITED:
+                key = 3
+            elif decision.resolution in (Resolution.USE_A, Resolution.USE_B):
+                if decision.conflict.a == decision.conflict.b:
+                    key = 1
+                else:
+                    key = 2
+            elif decision.resolution in (Resolution.USE_A_FIRST, Resolution.USE_B_FIRST):
+                key = 2
+            elif decision.resolution == Resolution.USE_BASE:
+                key = 1
+            else:
+                raise KeyError(f'Unexpected resolution type {decision.resolution}')
+            return (key, -lineno)
+
+        swin = self._scroll_panel.window()
+        srows, _ = swin.getmaxyx()
+        cpad = self._content_pad
+        cpad_rows, _ = cpad.getmaxyx()
+
+        lineno_map: dict[int, Decision] = {}
+        lineno = 0
+        for chunk in self._merge_output.chunks:
+            if isinstance(chunk, Decision):
+                lineno_map[lineno] = chunk
+                lineno += chunk.linecount
+            else:
+                lineno += len(chunk)
+
+        super()._draw_scrollbar()
+
+        for lineno, decision in sorted(lineno_map.items(), key=scrollbar_indicator_sort_key):
+            if (
+                decision.resolution in (Resolution.USE_A, Resolution.USE_B)
+                and decision.conflict.a == decision.conflict.b
+            ):
+                if decision.conflict.a:
+                    color = ColorPair.DIFF_ADDED
+                else:
+                    color = ColorPair.DIFF_REMOVED
+            else:
+                match decision.resolution:
+                    case Resolution.UNRESOLVED:
+                        color = ColorPair.UNRESOLVED
+                    case Resolution.EDITED:
+                        color = ColorPair.EDITED
+                    case Resolution.USE_A | Resolution.USE_A_FIRST:
+                        color = ColorPair.A_SELECTED
+                    case Resolution.USE_B | Resolution.USE_B_FIRST:
+                        color = ColorPair.B_SELECTED
+                    case Resolution.USE_BASE:
+                        color = ColorPair.BASE_SELECTED
+
+            start_row = floor(lineno * srows / cpad_rows)
+            end_row = ceil((lineno + decision.linecount - 1) * srows / cpad_rows)
+
+            ## Simple algorithm for adding color to existing scrollbar
+            # for row in range(start_row, end_row):
+            #     ch = (swin.inch(row, 0) & ~curses.A_COLOR) | color.attr
+            #     # ch and attr just get or'd together at the C API anyway
+            #     noerror(swin.addch, row, 0, ch, ch)
+
+            ## Complicated algorithm for adjusting the "sub-pixels" of the thumb
+            ## edges so that delta-containing rows change color exactly when the
+            ## deltas come on-screen
+            for row in range(start_row, end_row):
+                top_line = self._scrollbar_vscroll
+
+                row_start_line = row * cpad_rows / srows
+                row_end_line = (row + 1) * cpad_rows / srows
+                decision_start_line = lineno
+                decision_end_line = lineno + decision.linecount
+                window_start_line = top_line
+                window_end_line = top_line + srows
+                visible_start_line = max(decision_start_line, window_start_line)
+                visible_end_line = min(decision_end_line, window_end_line)
+                if (
+                    visible_start_line < visible_end_line
+                    and visible_start_line < row_end_line
+                    and visible_end_line > row_start_line
+                ):
+                    noerror(swin.addch, row, 0, ' ', color.attr | curses.A_REVERSE)
+                else:
+                    noerror(swin.addch, row, 0, curses.ACS_CKBOARD, color.attr)
 
 
 class Resolution(Enum):
@@ -2396,7 +2520,6 @@ def flag_list(flag: str, args: list[str]) -> list[str]:
 def tempfile_prefix(filename: Optional[str] = None) -> str:
     prefix = Path(filename).name if filename else 'tuimerge'
     return f'{prefix}-'
-
 
 
 def terminal_supports_xterm_mouse() -> bool:
