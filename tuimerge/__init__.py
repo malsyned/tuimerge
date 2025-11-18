@@ -1811,6 +1811,8 @@ class TUIMerge:
         noerror(curses.curs_set, 0)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
+        # Ghostty needs this to be called after mousemask(), seems like a bug
+        term_enable_mouse_drag()
 
         if self._has_conflicts:
             self._change_panes = [
