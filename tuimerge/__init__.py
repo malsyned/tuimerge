@@ -988,6 +988,14 @@ class OutputPane(Pane):
             key=scrollbar_indicator_sort_key,
             reverse=True,
         ):
+            start_row = lineno * srows // cpad_rows
+            start_row_2: int | None = None
+            end_row = max(
+                (lineno + decision.linecount) * srows // cpad_rows,
+                start_row + 1,
+            )
+            color2: ColorPair | None = None
+
             if (
                 decision.resolution in (Resolution.USE_A, Resolution.USE_B)
                 and decision.conflict.a == decision.conflict.b
@@ -1002,18 +1010,20 @@ class OutputPane(Pane):
                         color = ColorPair.UNRESOLVED
                     case Resolution.EDITED:
                         color = ColorPair.EDITED
-                    case Resolution.USE_A | Resolution.USE_A_FIRST:
+                    case Resolution.USE_A:
                         color = ColorPair.A_SELECTED
-                    case Resolution.USE_B | Resolution.USE_B_FIRST:
+                    case Resolution.USE_A_FIRST:
+                        color = ColorPair.A_SELECTED
+                        start_row_2 = (lineno + len(decision.conflict.a)) * srows // cpad_rows
+                        color2 = ColorPair.B_SELECTED
+                    case Resolution.USE_B:
                         color = ColorPair.B_SELECTED
+                    case Resolution.USE_B_FIRST:
+                        color = ColorPair.B_SELECTED
+                        start_row_2 = (lineno + len(decision.conflict.b)) * srows // cpad_rows
+                        color2 = ColorPair.A_SELECTED
                     case Resolution.USE_BASE:
                         color = ColorPair.BASE_SELECTED
-
-            start_row = lineno * srows // cpad_rows
-            end_row = max(
-                (lineno + decision.linecount) * srows // cpad_rows,
-                start_row + 1,
-            )
 
             ## Simple algorithm for adding color to existing scrollbar
             # for row in range(start_row, end_row):
@@ -1026,6 +1036,12 @@ class OutputPane(Pane):
             ## edges so that delta-containing rows become part of the thumb
             ## exactly when the deltas enter the visible area
             for row in range(start_row, end_row):
+                if (
+                    start_row_2 is not None
+                    and color2 is not None
+                    and row >= start_row_2
+                ):
+                    color = color2
                 top_line = self._scrollbar_vscroll
 
                 row_start_line = row * cpad_rows / srows
