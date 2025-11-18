@@ -947,6 +947,8 @@ class OutputPane(Pane):
         noerror(titlewin.addstr, status)
 
     def _draw_scrollbar(self) -> None:
+        super()._draw_scrollbar()
+
         def scrollbar_indicator_sort_key(value: tuple[int, Decision]) -> tuple[int, int]:
             lineno, decision = value
             if decision.resolution == Resolution.UNRESOLVED:
@@ -980,8 +982,7 @@ class OutputPane(Pane):
             else:
                 lineno += len(chunk)
 
-        super()._draw_scrollbar()
-
+        original_thumb_rows = set(range(self._thumb_start, self._thumb_end))
         for lineno, decision in sorted(lineno_map.items(), key=scrollbar_indicator_sort_key):
             if (
                 decision.resolution in (Resolution.USE_A, Resolution.USE_B)
@@ -1012,10 +1013,11 @@ class OutputPane(Pane):
             #     ch = (swin.inch(row, 0) & ~curses.A_COLOR) | color.attr
             #     # ch and attr just get or'd together at the C API anyway
             #     noerror(swin.addch, row, 0, ch, ch)
+            ##
 
             ## Complicated algorithm for adjusting the "sub-pixels" of the thumb
-            ## edges so that delta-containing rows change color exactly when the
-            ## deltas come on-screen
+            ## edges so that delta-containing rows become part of the thumb
+            ## exactly when the deltas enter the visible area
             for row in range(start_row, end_row):
                 top_line = self._scrollbar_vscroll
 
@@ -1034,7 +1036,13 @@ class OutputPane(Pane):
                 ):
                     noerror(swin.addch, row, 0, ' ', color.attr | curses.A_REVERSE)
                 else:
+                    original_thumb_rows.discard(row)
                     noerror(swin.addch, row, 0, curses.ACS_CKBOARD, color.attr)
+        if not original_thumb_rows:
+            # above thumb boundary adjustments wound up erasing the entire
+            # thumb. Restore one cell of it.
+            ch = swin.inch(self._thumb_start, 0)
+            noerror(swin.addch, self._thumb_start, 0, ' ', ch | curses.A_REVERSE)
 
 
 class Resolution(Enum):
