@@ -1009,8 +1009,11 @@ class OutputPane(Pane):
                     case Resolution.USE_BASE:
                         color = ColorPair.BASE_SELECTED
 
-            start_row = floor(lineno * srows / cpad_rows)
-            end_row = ceil((lineno + decision.linecount - 1) * srows / cpad_rows)
+            start_row = lineno * srows // cpad_rows
+            end_row = max(
+                (lineno + decision.linecount) * srows // cpad_rows,
+                start_row + 1,
+            )
 
             ## Simple algorithm for adding color to existing scrollbar
             # for row in range(start_row, end_row):
