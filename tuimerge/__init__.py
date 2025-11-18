@@ -1039,7 +1039,7 @@ class OutputPane(Pane):
                 if (
                     start_row_2 is not None
                     and color2 is not None
-                    and row >= start_row_2
+                    and row > start_row_2
                 ):
                     color = color2
                 top_line = self._scrollbar_vscroll
