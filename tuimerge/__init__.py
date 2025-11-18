@@ -2564,6 +2564,8 @@ def terminal_supports_xterm_mouse() -> bool:
     terminal_type = os.environ.get('TERM', 'unknown')
     if 'xterm' in terminal_type:
         return True
+    if 'rxvt' in terminal_type:
+        return True
     return False
 
 
