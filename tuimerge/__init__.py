@@ -101,7 +101,7 @@ class Dialog:
         self._panel = panel.new_panel(self._win)
         self._panel.hide()
         self._color = ColorPair.DIALOG_INFO
-        self._title = None
+        self._title: str | None = None
         self._text = ' '
         self._prompt: str | None = None
         self._wide = False
@@ -548,13 +548,13 @@ class MergeOutput:
         )
 
 
-def noerror[**P, R](f: Callable[P, R], default_return: R = None) -> Callable[P, R]:
+def noerror[**P, R](f: Callable[P, R]) -> Callable[P, R | None]:
     @wraps(f)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | None:
         try:
             return f(*args, **kwargs)
         except curses.error:
-            return default_return
+            return None
     return wrapper
 
 
@@ -2766,6 +2766,7 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
         if zlines or alines or blines:
             prefix = list(common_prefix(alines, blines))
             zealous_ok = not (len(prefix) == len(alines) == len(blines))
+            suffix: list[str]
             if zealous_ok:
                 alines = alines[len(prefix):]
                 blines = blines[len(prefix):]
@@ -2773,7 +2774,7 @@ def internal_merge(base: list[str], a: list[str], b: list[str], labels: list[str
                 alines = alines[:len(alines) - len(suffix)]
                 blines = blines[:len(blines) - len(suffix)]
             else:
-                suffix: list[str] = []  # pylance can't tell this is always set
+                suffix = []  # pylance can't tell this is always set
 
             if zealous_ok and prefix:
                 yield Decision(mkconflict([], prefix, prefix), Resolution.USE_A)
