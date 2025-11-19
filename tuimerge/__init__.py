@@ -4,6 +4,7 @@ from abc import abstractmethod
 import curses
 import curses.panel as panel
 import curses.ascii as ascii
+from functools import wraps
 from math import ceil, floor
 from merge3 import Merge3
 import argparse
@@ -146,7 +147,7 @@ class Dialog:
             col = (contents_width - len(line)) // 2 if self._center else 0
             self._pad.addstr(i + title_height, col, line)
         if self._prompt:
-            noerror(self._pad.addstr, contents_height - 1, contents_width - len(self._prompt), self._prompt)
+            noerror(self._pad.addstr)(contents_height - 1, contents_width - len(self._prompt), self._prompt)
         self._pad.overwrite(self._win, 0, 0, 1, 2, height - 2, width - 3)
         self._panel.replace(self._win)
 
@@ -236,12 +237,12 @@ class Pane:
             self._title_bar_focus_char = curses.ACS_CKBOARD
             titlewin.move(0, 0)
             for _ in range(cols):
-                noerror(titlewin.addch, self._title_bar_focus_char)
+                noerror(titlewin.addch)(self._title_bar_focus_char)
         else:
             self._title_bar_focus_char = ord(' ')
-        noerror(titlewin.addch, 0, 0, '[' if self._focused else ' ')
+        noerror(titlewin.addch)(0, 0, '[' if self._focused else ' ')
         self._draw_title()
-        noerror(titlewin.addch, ']' if self._focused else ' ')
+        noerror(titlewin.addch)(']' if self._focused else ' ')
 
     @abstractmethod
     def _draw_title(self) -> None: ...
@@ -309,9 +310,9 @@ class Pane:
 
         for row in range(srows):
             if row >= self._thumb_start and row < self._thumb_end:
-                noerror(swin.addch, row, 0, ' ', curses.A_REVERSE)
+                noerror(swin.addch)(row, 0, ' ', curses.A_REVERSE)
             else:
-                noerror(swin.addch, row, 0, curses.ACS_CKBOARD)
+                noerror(swin.addch)(row, 0, curses.ACS_CKBOARD)
 
     @property
     def _scrollbar_vscroll(self) -> int:
@@ -442,21 +443,21 @@ class ChangePane(Pane):
             else:
                 attr = curses.A_NORMAL
                 content_attr = curses.A_NORMAL
-            noerror(self._gutter_pad.addch, i, 0, prefix, attr)
+            noerror(self._gutter_pad.addch)(i, 0, prefix, attr)
             addstr_sanitized(self._content_pad, i, 0, data, attr | content_attr)
         self._draw()
 
     def _draw_title(self) -> None:
         titlewin = self._title_panel.window()
-        noerror(titlewin.addstr, f'{self._key}:')
-        noerror(titlewin.addch, ' ')
+        noerror(titlewin.addstr)(f'{self._key}:')
+        noerror(titlewin.addch)(' ')
         name = self._file.label or self._file.filename
         if name:
-            noerror(titlewin.addstr, name)
+            noerror(titlewin.addstr)(name)
             if self._desc:
-                noerror(titlewin.addch, ' ')
+                noerror(titlewin.addch)(' ')
         if self._desc:
-            noerror(titlewin.addstr, f'({self._desc})', curses.A_ITALIC)
+            noerror(titlewin.addstr)(f'({self._desc})', curses.A_ITALIC)
 
 
 class MergeOutput:
@@ -523,7 +524,7 @@ class MergeOutput:
                 lineno = e.draw(pane, lineno, i == selected_chunk)
             else:
                 for line in e:
-                    noerror(pane.gutter.addch, lineno, 0, ' ')
+                    noerror(pane.gutter.addch)(lineno, 0, ' ')
                     addstr_sanitized(pane.content, lineno, 0, line)
                     lineno += 1
 
@@ -547,11 +548,14 @@ class MergeOutput:
         )
 
 
-def noerror[**P, T](f: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> None:
-    try:
-        f(*args, **kwargs)
-    except curses.error:
-        pass
+def noerror[**P, R](f: Callable[P, R], default_return: R = None) -> Callable[P, R]:
+    @wraps(f)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return f(*args, **kwargs)
+        except curses.error:
+            return default_return
+    return wrapper
 
 
 class ConflictVisibility(Enum):
@@ -918,20 +922,20 @@ class OutputPane(Pane):
                 if len(filename) > div:
                     filenames[i] = '…' + filename[-(div - 1):]
 
-            noerror(titlewin.addstr, 'Base:')
-            noerror(titlewin.addch, ' ')
-            noerror(titlewin.addstr, filenames[0])
-            noerror(titlewin.addstr, '; ')
-            noerror(titlewin.addstr, 'Output:')
-            noerror(titlewin.addch, ' ')
-            noerror(titlewin.addstr, filenames[1])
-            noerror(titlewin.addch, ' ')
+            noerror(titlewin.addstr)('Base:')
+            noerror(titlewin.addch)(' ')
+            noerror(titlewin.addstr)(filenames[0])
+            noerror(titlewin.addstr)('; ')
+            noerror(titlewin.addstr)('Output:')
+            noerror(titlewin.addch)(' ')
+            noerror(titlewin.addstr)(filenames[1])
+            noerror(titlewin.addch)(' ')
         else:
             merge = name or self._outfile
             if merge:
-                noerror(titlewin.addstr, merge)
-                noerror(titlewin.addch, ' ')
-        noerror(titlewin.addstr, '(Merge)', curses.A_ITALIC)
+                noerror(titlewin.addstr)(merge)
+                noerror(titlewin.addch)(' ')
+        noerror(titlewin.addstr)('(Merge)', curses.A_ITALIC)
 
     @property
     def _status(self) -> str:
@@ -943,8 +947,8 @@ class OutputPane(Pane):
         _, cols = titlewin.getmaxyx()
         status = self._status
         # Ensure some space between titlebar contents and resolution status
-        noerror(titlewin.addch, 0, cols - 2 - len(status), self._title_bar_focus_char)
-        noerror(titlewin.addstr, status)
+        noerror(titlewin.addch)(0, cols - 2 - len(status), self._title_bar_focus_char)
+        noerror(titlewin.addstr)(status)
 
     def _draw_scrollbar(self) -> None:
         super()._draw_scrollbar()
@@ -1029,7 +1033,7 @@ class OutputPane(Pane):
             # for row in range(start_row, end_row):
             #     ch = (swin.inch(row, 0) & ~curses.A_COLOR) | color.attr
             #     # ch and attr just get or'd together at the C API anyway
-            #     noerror(swin.addch, row, 0, ch, ch)
+            #     mknoerror(swin.addch)(row, 0, ch, ch)
             ##
 
             ## Complicated algorithm for adjusting the "sub-pixels" of the thumb
@@ -1057,15 +1061,15 @@ class OutputPane(Pane):
                     and visible_start_line < row_end_line
                     and visible_end_line > row_start_line
                 ):
-                    noerror(swin.addch, row, 0, ' ', color.attr | curses.A_REVERSE)
+                    noerror(swin.addch)(row, 0, ' ', color.attr | curses.A_REVERSE)
                 else:
                     original_thumb_rows.discard(row)
-                    noerror(swin.addch, row, 0, curses.ACS_CKBOARD, color.attr)
+                    noerror(swin.addch)(row, 0, curses.ACS_CKBOARD, color.attr)
         if not original_thumb_rows:
             # above thumb boundary adjustments wound up erasing the entire
             # thumb. Restore one cell of it.
             ch = swin.inch(self._thumb_start, 0)
-            noerror(swin.addch, self._thumb_start, 0, ' ', ch | curses.A_REVERSE)
+            noerror(swin.addch)(self._thumb_start, 0, ' ', ch | curses.A_REVERSE)
 
     def mouse_event(self, scr_mrow: int, scr_mcol: int, bstate: int) -> None:
         crow, ccol = self._content_panel.window().getbegyx()
@@ -1422,13 +1426,13 @@ class Decision:
                 bracket = curses.ACS_LLCORNER
             else:
                 bracket = curses.ACS_VLINE
-            noerror(pane.gutter.addstr, lineno, 0, this_prefix, color.attr | gutter_attr)
-            noerror(pane.gutter.addch, lineno, 1, bracket, color.attr | gutter_attr)
+            noerror(pane.gutter.addstr)(lineno, 0, this_prefix, color.attr | gutter_attr)
+            noerror(pane.gutter.addch)(lineno, 1, bracket, color.attr | gutter_attr)
             if text:
                 addstr_sanitized(pane.content, lineno, 0, line, pane_color.attr | pane_attr)
                 _, cols = pane.content.getmaxyx()
                 _, length = pane.content.getyx()
-                noerror(pane.content.addstr, lineno, length, ' ' * (cols - length), pane_color.attr | pane_attr)
+                noerror(pane.content.addstr)(lineno, length, ' ' * (cols - length), pane_color.attr | pane_attr)
             else:
                 pane.content.attron(pane_color.attr | pane_attr)
                 pane.content.hline(lineno, 0, 0, pane.width)
@@ -1858,9 +1862,9 @@ class TUIMerge:
 
     def run(self, stdscr: curses.window) -> None:
         self._stdscr = stdscr
-        noerror(curses.use_default_colors)
+        noerror(curses.use_default_colors)()
         ColorPair.init(stdscr)
-        noerror(curses.curs_set, 0)
+        noerror(curses.curs_set)(0)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
         # Ghostty needs this to be called after mousemask(), seems like a bug
