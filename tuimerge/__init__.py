@@ -548,11 +548,11 @@ class MergeOutput:
         )
 
 
-def noerror[**P, R](f: Callable[P, R]) -> Callable[P, R | None]:
-    @wraps(f)
+def noerror[**P, R](func: Callable[P, R]) -> Callable[P, R | None]:
+    @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | None:
         try:
-            return f(*args, **kwargs)
+            return func(*args, **kwargs)
         except curses.error:
             return None
     return wrapper
