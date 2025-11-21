@@ -624,7 +624,7 @@ def addstr_sanitized(
     # addstr(), so accumulate runs of legal characters and write them out all at
     # once, instead of using addch() for every code point.
     printable = ''
-    def flush_printable():
+    def flush_printable() -> None:
         nonlocal printable
         if not printable:
             return
@@ -1250,7 +1250,7 @@ class ColorPair(IntEnum):
         return selected
 
 
-def pick_selection_highlight(scr: curses.window):
+def pick_selection_highlight(scr: curses.window) -> int:
     # On xterm-88color and xterm-256color, the default color map has a color
     # cube starting after the 16 SGR colors, and then a greyscale block at the
     # upper end.
@@ -1358,7 +1358,7 @@ class Decision:
     resolution: Resolution = Resolution.UNRESOLVED
     edit: list[str] = field(default_factory=list[str])
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.default_resolution = self.resolution
 
     @property
@@ -2014,7 +2014,7 @@ class TUIMerge:
                 for pane in self._panes:
                     pane.mouse_event(mrow, mcol, bstate)
 
-    def _force_redraw(self):
+    def _force_redraw(self) -> None:
         panel.update_panels()
         self._stdscr.clearok(True)
         curses.doupdate()

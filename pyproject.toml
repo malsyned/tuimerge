@@ -19,3 +19,6 @@ include = [ "tuimerge" ]
 
 [project.scripts]
 tuimerge = "tuimerge.__main__:main"
+
+[tool.setuptools.package-data]
+tuimerge = ["*.pyi"]

@@ -5,16 +5,14 @@ from .util import clamp
 
 cpython = platform.python_implementation() == 'CPython'
 
-if cpython:
-    from ._curses_extra import ffi, lib  # type: ignore
-
 if cpython and hasattr(curses, 'ncurses_version'):
+    from ._curses_extra import ffi, lib
     def pad_to_win(
         pad: curses.window, win: curses.window, sminline: int, smincol: int
     ) -> None:
-        lib.py_pad_to_win(   # type: ignore
-            ffi.cast('void *', id(pad)),  # type: ignore
-            ffi.cast('void *', id(win)),  # type: ignore
+        lib.py_pad_to_win(
+            ffi.cast('void *', id(pad)),
+            ffi.cast('void *', id(win)),
             sminline, smincol
         )
 # TODO: pypy support
