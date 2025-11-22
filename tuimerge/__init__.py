@@ -1422,7 +1422,7 @@ class Decision:
                 bracket = ord(':')
             elif i == 0 and start_chunk:
                 bracket = curses.ACS_ULCORNER
-            elif i == len(text) - 1 and end_chunk:
+            elif i == max(0, len(text) - 1) and end_chunk:
                 bracket = curses.ACS_LLCORNER
             else:
                 bracket = curses.ACS_VLINE
