@@ -1419,7 +1419,7 @@ class Decision:
             else:
                 this_prefix = ' '
             if start_chunk and end_chunk and len(text) <= 1:
-                bracket = ord(':')
+                bracket = ord('[')
             elif i == 0 and start_chunk:
                 bracket = curses.ACS_ULCORNER
             elif i == max(0, len(text) - 1) and end_chunk:
