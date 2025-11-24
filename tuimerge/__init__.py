@@ -1352,6 +1352,9 @@ class Edit:
     hide_after: int
 
 
+EMPTY_DELTA_TEXT = ' (No source lines) '
+EMPTY_DELTA_FRAMING = 4
+
 @dataclass
 class Decision:
     conflict: Conflict
@@ -1380,7 +1383,10 @@ class Decision:
         return max(1, len(text))
 
     def _text_width(self, text: list[str]) -> int:
-        return max(map(printable_len, text), default=len('-'))
+        return max(
+            map(printable_len, text),
+            default=len(EMPTY_DELTA_TEXT) + 2 * EMPTY_DELTA_FRAMING
+        )
 
     @property
     def width(self) -> int:
@@ -1430,13 +1436,16 @@ class Decision:
             noerror(pane.gutter.addch)(lineno, 1, bracket, color.attr | gutter_attr)
             if text:
                 addstr_sanitized(pane.content, lineno, 0, line, pane_color.attr | pane_attr)
-                _, cols = pane.content.getmaxyx()
-                _, length = pane.content.getyx()
-                noerror(pane.content.addstr)(lineno, length, ' ' * (cols - length), pane_color.attr | pane_attr)
             else:
-                pane.content.attron(pane_color.attr | pane_attr)
-                pane.content.hline(lineno, 0, 0, pane.width)
-                pane.content.attroff(pane_color.attr | pane_attr)
+                pane.content.move(lineno, 0)
+                for _ in range(4):
+                    pane.content.addch(curses.ACS_HLINE, pane_color.attr | pane_attr)
+                pane.content.addstr(EMPTY_DELTA_TEXT, pane_color.attr | pane_attr | curses.A_ITALIC)
+                for _ in range(4):
+                    noerror(pane.content.addch)(curses.ACS_HLINE, pane_color.attr | pane_attr)
+            _, cols = pane.content.getmaxyx()
+            _, length = pane.content.getyx()
+            noerror(pane.content.addstr)(lineno, length, ' ' * (cols - length), pane_color.attr | pane_attr)
             lineno += 1
         return lineno
 
