@@ -15,6 +15,7 @@ if cpython and hasattr(curses, 'ncurses_version'):
             ffi.cast('void *', id(win)),
             sminline, smincol
         )
+    define_key = lib.define_key
 # TODO: pypy support
 else:
     def pad_to_win(
@@ -28,3 +29,6 @@ else:
         if copylines and copycols:
             pad.overwrite(
                 win, sminline, smincol, 0, 0, copylines - 1, copycols - 1)
+
+    def define_key(definition: bytes, keycode: int) -> None:
+        raise NotImplementedError('Pure Python implementation of define_key() not possible')

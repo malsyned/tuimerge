@@ -20,5 +20,10 @@ ffibuilder.cdef(
 )
 
 
+ffibuilder.cdef(
+    'int define_key(const char *definition, int keycode);'
+)
+
+
 if __name__ == '__main__':
     ffibuilder.compile(verbose=True)

@@ -10,4 +10,7 @@ class _Lib:
             self, pypad: CData, pywin: CData, sminline: int, smincol: int
     ) -> None: ...
 
+    def define_key(self, definition: bytes, keycode: int) -> None: ...
+
+
 lib: _Lib

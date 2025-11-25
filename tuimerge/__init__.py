@@ -37,7 +37,7 @@ from typing import (
 
 
 from .util import clamp
-from .curses_extra import pad_to_win
+from .curses_extra import pad_to_win, define_key
 
 
 # display 3 windows:
@@ -1136,58 +1136,35 @@ class Resolution(Enum):
         raise ArithmeticError(f"Can't add {other} to {self}")
 
 
-def xterm_get_foreground_color(s: curses.window) -> tuple[int, int, int] | None:
-    return xterm_get_color(s, 10)
+def xterm_query_foreground_color() -> None:
+    xterm_query_color(10)
 
 
-def xterm_get_background_color(s: curses.window) -> tuple[int, int, int] | None:
-    return xterm_get_color(s, 11)
+def xterm_query_background_color() -> None:
+    xterm_query_color(11)
 
 
-def xterm_get_color(s: curses.window, osc: int) -> tuple[int, int, int] | None:
-    try:
-        curses.halfdelay(1)  # short delay in case terminal doesn't respond
-        print(f'\033]{osc};?\x07', flush=True)
-        for i, expected in enumerate(f'\033]{osc};'):
-            c = s.getch()
-            if c != ord(expected):
-                return None
-            if not i:
-                curses.halfdelay(10)  # longer delay now that we're chatting
-        response: list[int] = []
-        while True:
-            c = s.getch()
-            if c == 27:
-                if s.getch() != ord('\\'):  # ESC \ => ST
-                    return None
-                break
-            elif c == 7:
-                break
-            response.append(c)
-        rgbstr = ''.join(map(chr, response))
-        if rgbstr.startswith('rgb:'):
-            rgbstrs = rgbstr[len('rgb:'):].split('/')
-            if len(rgbstrs) != 3:
-                return None
-            if len(set(map(len, rgbstrs))) != 1:
-                return None
-            max = 2 ** (4 * len(rgbstrs[0])) - 1
-            return cast(
-                tuple[int, int, int],
-                tuple(int(s, base=16) / max for s in rgbstrs)
-            )
-        elif rgbstr.startswith('#'):
-            # TODO: Parse this form
+def xterm_query_color(osc: int) -> None:
+    print(f'\033]{osc};?\x07', flush=True)
+
+
+def xterm_parse_color(rgbstr: str) -> tuple[int, int, int] | None:
+    if rgbstr.startswith('rgb:'):
+        rgbstrs = rgbstr[len('rgb:'):].split('/')
+        if len(rgbstrs) != 3:
             return None
-        else:
+        if len(set(map(len, rgbstrs))) != 1:
             return None
-    except curses.error:
+        max = 2 ** (4 * len(rgbstrs[0])) - 1
+        return cast(
+            tuple[int, int, int],
+            tuple(int(s, base=16) / max for s in rgbstrs)
+        )
+    elif rgbstr.startswith('#'):
+        # TODO: Parse this form
         return None
-    finally:
-        curses.cbreak()
-        # Letting the response pass through curses via getch confuses it.
-        # clearok() gets it back on track.
-        s.clearok(1)
+    else:
+        return None
 
 
 class ColorPair(IntEnum):
@@ -1212,31 +1189,61 @@ class ColorPair(IntEnum):
 
     @classmethod
     def init(cls, scr: curses.window) -> None:
+        cls._fg = None
+        cls._bg = None
         if not curses.has_colors():
             return
         # ordinary blue is garish on almost every terminal emulator I've tried,
         # so use bright blue everywhere if possible.
-        bright = 8 if curses.COLORS > 8 else 0
+        cls._bright = 8 if curses.COLORS > 8 else 0
         curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, -1)
         curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, -1)
         curses.init_pair(cls.A, curses.COLOR_CYAN, -1)
-        curses.init_pair(cls.B, curses.COLOR_BLUE + bright, -1)
+        curses.init_pair(cls.B, curses.COLOR_BLUE + cls._bright, -1)
         curses.init_pair(cls.BASE, -1, -1)
         curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, -1)
         curses.init_pair(cls.EDITED, curses.COLOR_YELLOW, -1)
-        curses.init_pair(cls.DIALOG_INFO, curses.COLOR_BLUE + bright, -1)
+        curses.init_pair(cls.DIALOG_INFO, curses.COLOR_BLUE + cls._bright, -1)
         curses.init_pair(cls.DIALOG_WARNING, curses.COLOR_YELLOW, -1)
         curses.init_pair(cls.DIALOG_ERROR, curses.COLOR_RED, -1)
 
-        sel_bg_index = pick_selection_highlight(scr)
+        # Send out queries for xterm palette entries. Replies will come back
+        # asynchronously.
+        xterm_query_foreground_color()
+        xterm_query_background_color()
 
+        # Assign default colors to SELECTED ColorPairs. If xterm palette
+        # responses arrive later, the color pairs will be reconfigured.
+        cls.init_selection_colors(-1)
+
+    @classmethod
+    def init_selection_colors(cls, sel_bg_index: int) -> None:
         curses.init_pair(cls.DIFF_REMOVED_SELECTED, curses.COLOR_RED, sel_bg_index)
         curses.init_pair(cls.DIFF_ADDED_SELECTED, curses.COLOR_GREEN, sel_bg_index)
         curses.init_pair(cls.A_SELECTED, curses.COLOR_CYAN, sel_bg_index)
-        curses.init_pair(cls.B_SELECTED, curses.COLOR_BLUE + bright, sel_bg_index)
+        curses.init_pair(cls.B_SELECTED, curses.COLOR_BLUE + cls._bright, sel_bg_index)
         curses.init_pair(cls.BASE_SELECTED, -1, sel_bg_index)
         curses.init_pair(cls.UNRESOLVED_SELECTED, curses.COLOR_MAGENTA, sel_bg_index)
         curses.init_pair(cls.EDITED_SELECTED, curses.COLOR_YELLOW, sel_bg_index)
+
+    @classmethod
+    def foreground_color_update(cls, pn: str) -> None:
+        cls._fg = xterm_parse_color(pn)
+        cls._update_selection_colors()
+
+    @classmethod
+    def background_color_update(cls, pn: str) -> None:
+        cls._bg = xterm_parse_color(pn)
+        cls._update_selection_colors()
+
+    @classmethod
+    def _update_selection_colors(cls) -> None:
+        if not cls._fg or not cls._bg:
+            return
+        sel_bg_index = pick_selection_highlight(cls._fg, cls._bg)
+        if sel_bg_index < 0:
+            return
+        cls.init_selection_colors(sel_bg_index)
 
     @property
     def attr(self) -> int:
@@ -1250,7 +1257,10 @@ class ColorPair(IntEnum):
         return selected
 
 
-def pick_selection_highlight(scr: curses.window) -> int:
+def pick_selection_highlight(
+        fgcolor: tuple[int, int, int],
+        bgcolor: tuple[int, int, int],
+) -> int:
     # On xterm-88color and xterm-256color, the default color map has a color
     # cube starting after the 16 SGR colors, and then a greyscale block at the
     # upper end.
@@ -1262,12 +1272,6 @@ def pick_selection_highlight(scr: curses.window) -> int:
     if not greyscale_info:
         return -1
     rgb_levels, grey_levels, grey_start = greyscale_info
-    bgcolor = xterm_get_background_color(scr)
-    if not bgcolor:
-        return -1
-    fgcolor = xterm_get_foreground_color(scr)
-    if not fgcolor:
-        return -1
 
     bg_brightness = luminance(*bgcolor)
     fg_brightness = luminance(*fgcolor)
@@ -1821,11 +1825,42 @@ class TUIMerge:
             min_height = ChangePane.MIN_HEIGHT + OutputPane.MIN_HEIGHT
             min_width = ChangePane.MIN_WIDTH + OutputPane.MIN_WIDTH + 1
             if lines > min_height and cols > min_width:
-                if c == curses.KEY_RESIZE:
+                if c == self.KEY_OSC:
+                    if not self._handle_osc_seq():
+                        return c
+                elif c == curses.KEY_RESIZE:
                     self._resized()
                     self._update()
                 else:
                     return c
+
+    def _handle_osc_seq(self) -> None:
+        response: list[int] = []
+        escdelay = curses.get_escdelay()
+        curses.set_escdelay(1000)
+        curses.halfdelay(10)
+        try:
+            while True:
+                c = self._stdscr.getch()
+                if c == 27:
+                    self._stdscr.getch()  # assume ST sequence, discard \
+                    break
+                elif c == 7:
+                    break
+                response.append(c)
+        except curses.error:
+            return
+        finally:
+            curses.cbreak()
+            curses.set_escdelay(escdelay)
+        oscpayload = ''.join(map(chr, response))
+        if ';' not in oscpayload:
+            return
+        ps, pn = oscpayload.split(';', 1)
+        if ps == '10':
+            ColorPair.foreground_color_update(pn)
+        elif ps == '11':
+            ColorPair.background_color_update(pn)
 
     def show_dialog(
         self,
@@ -1878,6 +1913,9 @@ class TUIMerge:
         curses.mouseinterval(0)
         # Ghostty needs this to be called after mousemask(), seems like a bug
         term_enable_mouse_drag()
+
+        self.KEY_OSC = curses.KEY_MAX + 1
+        define_key(b'\033]', self.KEY_OSC)
 
         if self._has_conflicts:
             self._change_panes = [
