@@ -1828,6 +1828,9 @@ class TUIMerge:
                 if c == self.KEY_OSC:
                     if not self._handle_osc_seq():
                         return c
+                elif c == CTRL('L'):
+                    self._force_redraw()
+                    return c
                 elif c == curses.KEY_RESIZE:
                     self._resized()
                     self._update()
@@ -2029,7 +2032,7 @@ class TUIMerge:
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
             elif c == CTRL('L'):
-                self._force_redraw()
+                self._redraw_and_center()
             elif c == ord('!'):
                 print('Garbage!', flush=True)
             elif c in (ord('w'), ord('s')):
@@ -2066,6 +2069,9 @@ class TUIMerge:
         self._stdscr.clearok(True)
         panel.update_panels()
         curses.doupdate()
+
+    def _redraw_and_center(self) -> None:
+        self._force_redraw()
         self._output_pane.scroll_to_conflict(
                     self._selected_conflict,
                     (ScrollSnap.CENTER, ScrollSnap.CENTER)
