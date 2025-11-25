@@ -2072,10 +2072,11 @@ class TUIMerge:
 
     def _redraw_and_center(self) -> None:
         self._force_redraw()
-        self._output_pane.scroll_to_conflict(
-                    self._selected_conflict,
-                    (ScrollSnap.CENTER, ScrollSnap.CENTER)
-                )
+        if self._output_pane.conflict_is_visible(self._selected_conflict):
+            self._output_pane.scroll_to_conflict(
+                        self._selected_conflict,
+                        (ScrollSnap.CENTER, ScrollSnap.CENTER)
+                    )
 
     def _show_help(self) -> None:
         # TODO: What if the help text is longer than the terminal?
