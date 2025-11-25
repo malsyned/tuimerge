@@ -2062,8 +2062,9 @@ class TUIMerge:
                     pane.mouse_event(mrow, mcol, bstate)
 
     def _force_redraw(self) -> None:
-        panel.update_panels()
+        self._stdscr.touchwin()
         self._stdscr.clearok(True)
+        panel.update_panels()
         curses.doupdate()
         self._output_pane.scroll_to_conflict(
                     self._selected_conflict,
