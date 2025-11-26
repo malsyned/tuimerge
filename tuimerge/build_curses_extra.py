@@ -1,4 +1,6 @@
 import os
+import shlex
+import sysconfig
 from cffi import FFI
 ffibuilder = FFI()
 
@@ -10,8 +12,9 @@ ffibuilder.set_source(
     'tuimerge._curses_extra',
     '#include "curses_extra.h"',
     sources=[os.path.join(this_dir, 'curses_extra.c')],
-    libraries=['ncursesw'],
     include_dirs=[this_dir],
+    extra_compile_args=shlex.split(sysconfig.get_config_var('MODULE__CURSES_CFLAGS')),
+    extra_link_args=shlex.split(sysconfig.get_config_var('MODULE__CURSES_LDFLAGS')),
 )
 
 
