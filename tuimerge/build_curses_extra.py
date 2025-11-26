@@ -6,6 +6,8 @@ ffibuilder = FFI()
 
 
 this_dir = os.path.dirname(__file__)
+cflags = shlex.split(sysconfig.get_config_var('MODULE__CURSES_CFLAGS') or '')
+ldflags = shlex.split(sysconfig.get_config_var('MODULE__CURSES_LDFLAGS') or '')
 
 
 ffibuilder.set_source(
@@ -13,8 +15,8 @@ ffibuilder.set_source(
     '#include "curses_extra.h"',
     sources=[os.path.join(this_dir, 'curses_extra.c')],
     include_dirs=[this_dir],
-    extra_compile_args=shlex.split(sysconfig.get_config_var('MODULE__CURSES_CFLAGS')),
-    extra_link_args=shlex.split(sysconfig.get_config_var('MODULE__CURSES_LDFLAGS')),
+    extra_compile_args=cflags,
+    extra_link_args=ldflags,
 )
 
 
