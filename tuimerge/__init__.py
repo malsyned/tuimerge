@@ -468,7 +468,6 @@ class MergeOutput:
         self.hide_start_lines: list[int] = [0] * len(self.chunks)
         self.hide_end_lines: list[int] = [0] * len(self.chunks)
 
-
     def decisions(self) -> Generator[Decision]:
         return (c for c in self.chunks if isinstance(c, Decision))
 
@@ -518,7 +517,6 @@ class MergeOutput:
         else:
             selected_chunk = -1
 
-        #FIXME: Deal properly with ^M and other control characters
         for i, e in enumerate(self.edited_chunks()):
             if isinstance(e, Decision):
                 lineno = e.draw(pane, lineno, i == selected_chunk)
@@ -1188,7 +1186,7 @@ class ColorPair(IntEnum):
     EDITED_SELECTED = auto()
 
     @classmethod
-    def init(cls, scr: curses.window) -> None:
+    def init(cls) -> None:
         cls._fg = None
         cls._bg = None
         if not curses.has_colors():
@@ -1910,13 +1908,12 @@ class TUIMerge:
     def run(self, stdscr: curses.window) -> None:
         self._stdscr = stdscr
         noerror(curses.use_default_colors)()
-        ColorPair.init(stdscr)
+        ColorPair.init()
         noerror(curses.curs_set)(0)
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         curses.mouseinterval(0)
         # Ghostty needs this to be called after mousemask(), seems like a bug
         term_enable_mouse_drag()
-
         self.KEY_OSC = curses.KEY_MAX + 1
         define_key(b'\033]', self.KEY_OSC)
 
