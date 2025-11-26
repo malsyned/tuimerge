@@ -10,7 +10,7 @@ ffibuilder.set_source(
     'tuimerge._curses_extra',
     '#include "curses_extra.h"',
     sources=[os.path.join(this_dir, 'curses_extra.c')],
-    libraries=['cursesw'],
+    libraries=['ncursesw'],
     include_dirs=[this_dir],
 )
 
