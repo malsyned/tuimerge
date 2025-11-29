@@ -1898,7 +1898,7 @@ class TUIMerge:
 
             conflict_markers = has_conflict_markers(edited_lines)
             if conflict_markers and resolution == Resolution.EDITED:
-                conflict_text = ''.join(f'    {line}\n' for line in conflict_markers)
+                conflict_text = ''.join(f'    {line}' for line in conflict_markers)
                 dialog_result = self.show_dialog(
                     'The edited resolution contains conflict markers:\n'
                     f'{conflict_text}'
@@ -2470,13 +2470,13 @@ class Token:
     data: str | None = None
 
 
-A_RE    = re.compile(         r'<<<<<<< (.*)')
-BASE_RE = re.compile(re.escape('|||||||') + r' (.*)')
-B_RE    = re.compile(         r'=======')
-END_RE  = re.compile(         r'>>>>>>> (.*)')
+A_RE    = re.compile(         r'<<<<<<< (.*)\n?')
+BASE_RE = re.compile(re.escape('|||||||') + r' (.*)\n?')
+B_RE    = re.compile(         r'=======\n?')
+END_RE  = re.compile(         r'>>>>>>> (.*)\n?')
 
 
-def has_conflict_markers(lines: list[str]) -> Iterable[str]:
+def has_conflict_markers(lines: list[str]) -> list[str]:
     regexes = (A_RE, BASE_RE, B_RE, END_RE)
     return [
         line for regex in regexes for line in lines
