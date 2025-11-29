@@ -4,8 +4,9 @@ from abc import abstractmethod
 import curses
 import curses.panel as panel
 import curses.ascii as ascii
-from functools import wraps
+from functools import partial, wraps
 from math import ceil, floor
+import time
 from merge3 import Merge3
 import argparse
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ import textwrap
 from types import MappingProxyType
 from typing import (
     IO,
+    Any,
     Callable,
     Concatenate,
     Generator,
@@ -92,6 +94,118 @@ def clear_and_exit(stdscr: curses.window, code: int) -> NoReturn:
     stdscr.clear()
     stdscr.refresh()
     exit(code)  # indicate to git that the merge wasn't completed
+
+
+@dataclass
+class MenuItem:
+    name: str
+    shortcut: str
+
+
+class Menu:
+    def __init__(self, items: list[tuple[str, str]]) -> None:
+        self._items = [MenuItem(n, s) for n, s in items]
+        self._mnemonics: dict[str, MenuItem] = {}
+        for item in self._items:
+            if (a := item.name.find('&')) >= 0:
+                mnemonic = item.name[a+1:a+2].lower()
+                if mnemonic and mnemonic not in self._mnemonics:
+                    self._mnemonics[mnemonic] = item
+                continue
+            for i, c in enumerate(item.name):
+                if c not in self._mnemonics:
+                    item.name = item.name[:i] + '&' + item.name[i:]
+                    self._mnemonics[c.lower()] = item
+                    break
+        self._rows = len(self._items)
+        self._cols = max(
+            printable_len(i.name.replace('&', ''))
+            for i in self._items
+        )
+        self._pad_cols = 1 + self._cols + 4 + max(
+            printable_len(i.shortcut) for i in self._items
+        ) + 1
+
+    def show(
+        self,
+        getch: Callable[[], int],
+        scr: curses.window,
+        row: Optional[int] = None,
+        col: Optional[int] = None
+    ) -> int | None:
+        scrrows, scrcols = scr.getmaxyx()
+        winrows = min(self._rows + 2, scrrows)
+        wincols = min(self._pad_cols + 2, scrcols)
+
+        winrow = min(row, scrrows - winrows) if row else max(0, (scrrows - winrows) // 2)
+        wincol = min(col, scrcols - wincols) if col else max(0, (scrcols - wincols) // 2)
+
+        win = curses.newwin(winrows, wincols, winrow, wincol)
+        pan = panel.new_panel(win)
+        pan.top()
+        escdelay = curses.get_escdelay()
+        curses.set_escdelay(250)
+        pan.show()
+        try:
+            past_bstates = 0
+            selected = 0
+            mousedown = False
+            while True:
+                win.attron(ColorPair.DIALOG_INFO.attr)
+                win.box()
+                win.attroff(ColorPair.DIALOG_INFO.attr)
+                for i, item in enumerate(self._items):
+                    attr = curses.A_REVERSE if i == selected else 0
+                    disp_name = item.name.replace('&', '')
+                    parts = item.name.partition('&')
+                    addstr_sanitized(win, i + 1, 1, ' ', attr)
+                    addstr_sanitized(win, None, None, parts[0], attr)
+                    if parts[2]:
+                        addstr_sanitized(win, None, None, parts[2][0], attr | curses.A_UNDERLINE)
+                        addstr_sanitized(win, None, None, parts[2][1:], attr)
+                    addstr_sanitized(win, None, None, ' ' * (self._cols - len(disp_name)), attr)
+                    addstr_sanitized(win, None, None, '    ', attr)
+                    addstr_sanitized(win, None, None, item.shortcut, attr)
+                    addstr_sanitized(win, None, None, ' ', attr)
+                panel.update_panels()
+                curses.doupdate()
+                c = getch()
+                if c in (ord('\n'), ord(' '), curses.KEY_ENTER):
+                    return selected
+                elif c == 27:
+                    return None
+                elif c == curses.KEY_UP:
+                    selected = (selected - 1) % len(self._items)
+                elif c == curses.KEY_DOWN:
+                    selected = (selected + 1) % len(self._items)
+                elif c == curses.KEY_MOUSE:
+                    _, mcol, mrow, _, bstate = curses.getmouse()
+                    if win.enclose(mrow, mcol):
+                        wmrow = mrow - winrow - 1
+                        if 0 <= wmrow < len(self._items):
+                            if bstate & (
+                                curses.BUTTON1_RELEASED | curses.BUTTON3_RELEASED
+                            ) and past_bstates & (
+                                curses.BUTTON1_PRESSED | curses.BUTTON3_PRESSED
+                            ):
+                                return wmrow
+                            elif mousedown or bstate & (
+                                curses.BUTTON1_PRESSED | curses.BUTTON3_PRESSED
+                            ):
+                                selected = wmrow
+                                mousedown = True
+                    else:
+                        if bstate & (curses.BUTTON1_PRESSED | curses.BUTTON3_PRESSED):
+                            return None
+                    past_bstates |= bstate
+                elif chr(c) in self._mnemonics:
+                    selected_item = self._mnemonics[chr(c)]
+                    for i, item in enumerate(self._items):
+                        if item == selected_item:
+                            return i
+        finally:
+            curses.set_escdelay(escdelay)
+            pan.hide()
 
 
 class Dialog:
@@ -612,10 +726,11 @@ def printable_len(s: str) -> int:
 
 
 def addstr_sanitized(
-    win: curses.window, y: int, x: int, s: str, attr: int = 0
+    win: curses.window, y: int | None, x: int | None, s: str, attr: int = 0
 ) -> None:
     ctrl_attr = (attr & ~curses.A_BOLD) | curses.A_REVERSE
-    win.move(y, x)
+    if y is not None and x is not None:
+        win.move(y, x)
 
     # The only way to get Python's ncurses wrapper to put all of the `wchar_t`s
     # of a single grapheme cluster into the same `cchar_t` is by calling
@@ -681,6 +796,7 @@ class OutputPane(Pane):
         self._merge_output = merge_output
         self._resolved_color = resolved_color
         self._unresolved_color = unresolved_color
+        self._last_click: tuple[int, int, float] | None = None
 
         color = unresolved_color if merge_output.decision_chunk_indices else resolved_color
 
@@ -1075,15 +1191,29 @@ class OutputPane(Pane):
         mrow = scr_mrow - crow
         mcol = scr_mcol - ccol
         clicked_line = self._vscroll + mrow
-        if mcol < ccols and bstate & curses.BUTTON1_PRESSED:
+        if mcol < ccols and bstate:
             lineno = 0
             chunkno = 0
             for chunk in self._merge_output.chunks:
                 if isinstance(chunk, Decision):
                     end_lineno = lineno + chunk.linecount
                     if lineno <= clicked_line < end_lineno:
-                        self._parent.select_conflict(chunkno, scroll_minimal=True)
-                        return
+                        if bstate & curses.BUTTON1_PRESSED:
+                            self._parent.select_conflict(chunkno, scroll_minimal=True)
+                            # ncurses click tracking kinda sucks, so,
+                            # implementing my own.
+                            now = time.monotonic()
+                            if self._last_click is not None:
+                                last_row, last_col, last_time = self._last_click
+                                interval = now - last_time
+                                if scr_mrow == last_row and scr_mcol == last_col and interval < 0.25:
+                                    self._parent.context_menu(chunkno)
+                            self._last_click = scr_mrow, scr_mcol, now
+                            break
+                        elif bstate & curses.BUTTON3_RELEASED:
+                            self._parent.select_conflict(chunkno, scroll_minimal=True)
+                            self._parent.context_menu(chunkno, scr_mrow, scr_mcol)
+                            break
                     chunkno += 1
                     lineno += chunk.linecount
                 else:
@@ -2025,7 +2155,7 @@ class TUIMerge:
             elif c == ord('d') and self._has_conflicts:
                 self._diff_dialog()
             elif c == ord('\n') and self._has_conflicts:
-                self._select_resolution()
+                self.context_menu()
             elif c in (ord('?'), ord('/'), curses.KEY_F1):
                 self._show_help()
             elif c == CTRL('L'):
@@ -2126,50 +2256,39 @@ class TUIMerge:
             f.writelines(self._merge_output.lines())
         return True
 
-    def _select_resolution(self) -> None:
-        bindings: dict[str, Resolution | bool] = {
-            'a': Resolution.USE_A,
-            'b': Resolution.USE_B,
-            'A': Resolution.USE_A_FIRST,
-            'B': Resolution.USE_B_FIRST,
-            'i': Resolution.USE_BASE,
-            'u': Resolution.UNRESOLVED,
-            'e': Resolution.EDITED,
-            'r': True,
-        }
-        inputs = ''.join(bindings.keys()) + 'q'
+    def context_menu(
+        self,
+        conflict: Optional[int] = None,
+        row: Optional[int] = None,
+        col: Optional[int] = None
+    ) -> None:
+        if conflict is None:
+            conflict = self._selected_conflict
+        toggle_selected = partial(
+            self._output_pane.toggle_resolution, conflict)
+        resolve_selected = partial(
+            self._output_pane.resolve, conflict)
+        toggle_a = partial(toggle_selected, Resolution.USE_A)
+        toggle_b = partial(toggle_selected, Resolution.USE_B)
+        swap_selected = partial(self._output_pane.swap_resolutions, conflict)
+        unresolve_selected = partial(resolve_selected, Resolution.UNRESOLVED)
+        default_selected = partial(self._output_pane.default_resolution, conflict)
+        ignore_selected = partial(resolve_selected, Resolution.USE_BASE)
+        menu_items: list[tuple[Callable[[], Any], str, str]] = [
+            (toggle_a, 'Toggle changes from file &A', 'A'),
+            (toggle_b, 'Toggle changes from file &B', 'B'),
+            (swap_selected, 'E&xchange changes from A and B', 'X'),
+            (unresolve_selected, '&Unrseolve conflict', 'U'),
+            (ignore_selected, '&Ignore changes from both A and B', 'I'),
+            (default_selected, '&Reset to default resolution', 'R'),
+            (self._edit_selected_conflict, 'Open conflict in external &editor', 'E'),
+        ]
+        menu = Menu([i[1:] for i in menu_items])
+        r = menu.show(self._getch, self._stdscr, row, col)
 
-        dialog_text = '\n'.join([
-            'A           ' + Resolution.USE_A.value,
-            'B           ' + Resolution.USE_B.value,
-            'Shift+A     ' + Resolution.USE_A_FIRST.value,
-            'Shift+B     ' + Resolution.USE_B_FIRST.value,
-            'I           ' + Resolution.USE_BASE.value,
-            'E           Open conflict in external editor',
-            'R           Reset to default resolution',
-            'U           Unresolve conflict',
-        ])
-
-        r = self.show_dialog(
-            title='Select Resolution',
-            text=dialog_text,
-            inputs=inputs,
-            prompt=None,
-            center=False,
-            enter=chr(27),
-        )
-
-        if not isinstance(r, str):
-            return
-
-        resolution = bindings.get(r, False)
-
-        if resolution == Resolution.EDITED:
-            self._edit_selected_conflict()
-        elif isinstance(resolution, Resolution):
-            self._output_pane.resolve(self._selected_conflict, resolution)
-        elif resolution == True:
-            self._output_pane.default_resolution(self._selected_conflict)
+        if r is not None:
+            cb = menu_items[r][0]
+            cb()
 
     def _diff_dialog(self) -> None:
         dialog_text = '\n'.join([
