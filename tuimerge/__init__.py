@@ -1276,7 +1276,7 @@ def xterm_query_color(osc: int) -> None:
     print(f'\033]{osc};?\x07', flush=True)
 
 
-def xterm_parse_color(rgbstr: str) -> tuple[int, int, int] | None:
+def xterm_parse_color(rgbstr: str) -> tuple[float, float, float] | None:
     if rgbstr.startswith('rgb:'):
         rgbstrs = rgbstr[len('rgb:'):].split('/')
         if len(rgbstrs) != 3:
@@ -1285,7 +1285,7 @@ def xterm_parse_color(rgbstr: str) -> tuple[int, int, int] | None:
             return None
         max = 2 ** (4 * len(rgbstrs[0])) - 1
         return cast(
-            tuple[int, int, int],
+            tuple[float, float, float],
             tuple(int(s, base=16) / max for s in rgbstrs)
         )
     elif rgbstr.startswith('#'):
@@ -1317,8 +1317,8 @@ class ColorPair(IntEnum):
 
     @classmethod
     def init(cls) -> None:
-        cls._fg = None
-        cls._bg = None
+        cls._fg: tuple[float, float, float] | None = None
+        cls._bg: tuple[float, float, float] | None = None
         if not curses.has_colors():
             return
         # ordinary blue is garish on almost every terminal emulator I've tried,
@@ -1355,23 +1355,24 @@ class ColorPair(IntEnum):
         curses.init_pair(cls.EDITED_SELECTED, curses.COLOR_YELLOW, sel_bg_index)
 
     @classmethod
-    def foreground_color_update(cls, pn: str) -> None:
+    def foreground_color_update(cls, pn: str) -> bool:
         cls._fg = xterm_parse_color(pn)
-        cls._update_selection_colors()
+        return cls._update_selection_colors()
 
     @classmethod
-    def background_color_update(cls, pn: str) -> None:
+    def background_color_update(cls, pn: str) -> bool:
         cls._bg = xterm_parse_color(pn)
-        cls._update_selection_colors()
+        return cls._update_selection_colors()
 
     @classmethod
-    def _update_selection_colors(cls) -> None:
+    def _update_selection_colors(cls) -> bool:
         if not cls._fg or not cls._bg:
-            return
+            return False
         sel_bg_index = pick_selection_highlight(cls._fg, cls._bg)
         if sel_bg_index < 0:
-            return
+            return False
         cls.init_selection_colors(sel_bg_index)
+        return True
 
     @property
     def attr(self) -> int:
@@ -1386,8 +1387,8 @@ class ColorPair(IntEnum):
 
 
 def pick_selection_highlight(
-        fgcolor: tuple[int, int, int],
-        bgcolor: tuple[int, int, int],
+        fgcolor: tuple[float, float, float],
+        bgcolor: tuple[float, float, float],
 ) -> int:
     # On xterm-88color and xterm-256color, the default color map has a color
     # cube starting after the 16 SGR colors, and then a greyscale block at the
