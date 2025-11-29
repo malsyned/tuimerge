@@ -1989,9 +1989,11 @@ class TUIMerge:
             return
         ps, pn = oscpayload.split(';', 1)
         if ps == '10':
-            ColorPair.foreground_color_update(pn)
+            if ColorPair.foreground_color_update(pn):
+                self._update()
         elif ps == '11':
-            ColorPair.background_color_update(pn)
+            if ColorPair.background_color_update(pn):
+                self._update()
 
     def show_dialog(
         self,
