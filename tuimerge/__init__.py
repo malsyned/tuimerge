@@ -1955,8 +1955,7 @@ class TUIMerge:
             min_width = ChangePane.MIN_WIDTH + OutputPane.MIN_WIDTH + 1
             if lines > min_height and cols > min_width:
                 if c == self.KEY_OSC:
-                    if not self._handle_osc_seq():
-                        return c
+                    self._handle_osc_seq()
                 elif c == CTRL('L'):
                     self._force_redraw()
                     return c
