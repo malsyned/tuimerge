@@ -1297,6 +1297,13 @@ def xterm_parse_color(rgbstr: str) -> tuple[float, float, float] | None:
         return None
 
 
+# I would prefer these to be class-level attributes of ColorPair, but I can't
+# figure out how to make mypy OK with it.
+xterm_fg_color: tuple[float, float, float] | None = None
+xterm_bg_color: tuple[float, float, float] | None = None
+color_bright_offset: int = 0
+
+
 class ColorPair(IntEnum):
     DIFF_REMOVED = 1
     DIFF_ADDED = auto()
@@ -1319,21 +1326,21 @@ class ColorPair(IntEnum):
 
     @classmethod
     def init(cls) -> None:
-        cls._fg: tuple[float, float, float] | None = None
-        cls._bg: tuple[float, float, float] | None = None
         if not curses.has_colors():
             return
         # ordinary blue is garish on almost every terminal emulator I've tried,
         # so use bright blue everywhere if possible.
-        cls._bright = 8 if curses.COLORS > 8 else 0
+        global color_bright_offset
+        if curses.COLORS > 8:
+            color_bright_offset = 8
         curses.init_pair(cls.DIFF_REMOVED, curses.COLOR_RED, -1)
         curses.init_pair(cls.DIFF_ADDED, curses.COLOR_GREEN, -1)
         curses.init_pair(cls.A, curses.COLOR_CYAN, -1)
-        curses.init_pair(cls.B, curses.COLOR_BLUE + cls._bright, -1)
+        curses.init_pair(cls.B, curses.COLOR_BLUE + color_bright_offset, -1)
         curses.init_pair(cls.BASE, -1, -1)
         curses.init_pair(cls.UNRESOLVED, curses.COLOR_MAGENTA, -1)
         curses.init_pair(cls.EDITED, curses.COLOR_YELLOW, -1)
-        curses.init_pair(cls.DIALOG_INFO, curses.COLOR_BLUE + cls._bright, -1)
+        curses.init_pair(cls.DIALOG_INFO, curses.COLOR_BLUE + color_bright_offset, -1)
         curses.init_pair(cls.DIALOG_WARNING, curses.COLOR_YELLOW, -1)
         curses.init_pair(cls.DIALOG_ERROR, curses.COLOR_RED, -1)
 
@@ -1351,26 +1358,28 @@ class ColorPair(IntEnum):
         curses.init_pair(cls.DIFF_REMOVED_SELECTED, curses.COLOR_RED, sel_bg_index)
         curses.init_pair(cls.DIFF_ADDED_SELECTED, curses.COLOR_GREEN, sel_bg_index)
         curses.init_pair(cls.A_SELECTED, curses.COLOR_CYAN, sel_bg_index)
-        curses.init_pair(cls.B_SELECTED, curses.COLOR_BLUE + cls._bright, sel_bg_index)
+        curses.init_pair(cls.B_SELECTED, curses.COLOR_BLUE + color_bright_offset, sel_bg_index)
         curses.init_pair(cls.BASE_SELECTED, -1, sel_bg_index)
         curses.init_pair(cls.UNRESOLVED_SELECTED, curses.COLOR_MAGENTA, sel_bg_index)
         curses.init_pair(cls.EDITED_SELECTED, curses.COLOR_YELLOW, sel_bg_index)
 
     @classmethod
     def foreground_color_update(cls, pn: str) -> bool:
-        cls._fg = xterm_parse_color(pn)
+        global xterm_fg_color
+        xterm_fg_color = xterm_parse_color(pn)
         return cls._update_selection_colors()
 
     @classmethod
     def background_color_update(cls, pn: str) -> bool:
-        cls._bg = xterm_parse_color(pn)
+        global xterm_bg_color
+        xterm_bg_color = xterm_parse_color(pn)
         return cls._update_selection_colors()
 
     @classmethod
     def _update_selection_colors(cls) -> bool:
-        if not cls._fg or not cls._bg:
+        if not xterm_fg_color or not xterm_bg_color:
             return False
-        sel_bg_index = pick_selection_highlight(cls._fg, cls._bg)
+        sel_bg_index = pick_selection_highlight(xterm_fg_color, xterm_bg_color)
         if sel_bg_index < 0:
             return False
         cls.init_selection_colors(sel_bg_index)
