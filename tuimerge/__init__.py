@@ -655,9 +655,9 @@ class MergeOutput:
             for d in self.decisions()
         )
 
-    def fully_unresolved(self) -> bool:
+    def fully_defaulted(self) -> bool:
         return all(
-            d.resolution == Resolution.UNRESOLVED
+            d.resolution == d.default_resolution
             for d in self.decisions()
         )
 
@@ -2084,7 +2084,7 @@ class TUIMerge:
             c = self._getch()
             if c == ord('q'):
                 dialog_text = 'Quit without saving?'
-                if self._merge_output.fully_unresolved():
+                if self._merge_output.fully_defaulted():
                     dialog_color = ColorPair.DIALOG_INFO
                 else:
                     dialog_color = ColorPair.DIALOG_WARNING
