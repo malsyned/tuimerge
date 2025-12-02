@@ -979,9 +979,9 @@ class OutputPane(Pane):
 
             if decision.resolution == Resolution.EDITED:
                 result = self._parent.show_dialog(
-                    f'Discard edits and change resolution to "{resolution.value}"?',
-                    '(Y)es/(N)o', 'yn',
                     title='Resolution has been edited externally',
+                    text=f'Discard edits and change resolution to "{resolution.value}"?',
+                    prompt='(Y)es/(N)o', inputs='yn',
                     color=ColorPair.DIALOG_WARNING
                 )
                 if result != 'y':
@@ -1911,11 +1911,11 @@ class TUIMerge:
             if conflict_markers and resolution == Resolution.EDITED:
                 conflict_text = ''.join(f'    {line}' for line in conflict_markers)
                 dialog_result = self.show_dialog(
-                    'The presence of the following conflict markers suggests that the conflict is not fully resolved:\n\n'
-                    f'{conflict_text}\n'
-                    'Keep editing?',
-                    '(Y)es/(N)o', inputs='ynqe',
                     title='The edited resolution contains conflict markers',
+                    text='The presence of the following conflict markers suggests that the conflict is not fully resolved:\n\n'
+                         f'{conflict_text}\n'
+                         'Keep editing?',
+                    prompt='(Y)es/(N)o', inputs='ynqe',
                     color=ColorPair.DIALOG_WARNING,
                     esc=True, enter=False, center=False,
                 )
@@ -2099,10 +2099,10 @@ class TUIMerge:
                     dialog_color = ColorPair.DIALOG_WARNING
                     dialog_text = 'Unsaved changes made. ' + dialog_text
                 result = self.show_dialog(
-                    dialog_text,
-                    '(Y)es/(N)o', 'yn',
+                    title='Quit',
+                    text=dialog_text,
+                    prompt='(Y)es/(N)o', inputs='yn',
                     color=dialog_color,
-                    title='Quit'
                 )
                 if result == 'y':
                     clear_and_exit(stdscr, 1)  # indicate to git that the merge wasn't completed
@@ -2260,9 +2260,9 @@ class TUIMerge:
             )
             dialog_color = ColorPair.DIALOG_WARNING
         result = self.show_dialog(
-            dialog_text,
-            '(Y)es/(N)o', 'yn',
             title='Save and Quit',
+            text=dialog_text,
+            prompt='(Y)es/(N)o', inputs='yn',
             color=dialog_color
         )
         if result != 'y':
