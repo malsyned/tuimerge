@@ -2097,7 +2097,7 @@ class TUIMerge:
                     dialog_color = ColorPair.DIALOG_INFO
                 else:
                     dialog_color = ColorPair.DIALOG_WARNING
-                    dialog_text = 'Unsaved changes made.\n\n' + dialog_text
+                    dialog_text = 'Unsaved changes made. ' + dialog_text
                 result = self.show_dialog(
                     dialog_text,
                     '(Y)es/(N)o', 'yn',
