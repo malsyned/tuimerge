@@ -156,17 +156,19 @@ class Menu:
                 win.attroff(ColorPair.DIALOG_INFO.attr)
                 for i, item in enumerate(self._items):
                     attr = curses.A_REVERSE if i == selected else 0
+                    sc_attr = 0 if i == selected else curses.A_DIM
                     disp_name = item.name.replace('&', '')
-                    parts = item.name.partition('&')
+                    before_amp, _, after_amp = item.name.partition('&')
+                    addstr_more = partial(addstr_sanitized, win, None, None)
                     addstr_sanitized(win, i + 1, 1, ' ', attr)
-                    addstr_sanitized(win, None, None, parts[0], attr)
-                    if parts[2]:
-                        addstr_sanitized(win, None, None, parts[2][0], attr | curses.A_UNDERLINE)
-                        addstr_sanitized(win, None, None, parts[2][1:], attr)
-                    addstr_sanitized(win, None, None, ' ' * (self._cols - len(disp_name)), attr)
-                    addstr_sanitized(win, None, None, '    ', attr)
-                    addstr_sanitized(win, None, None, item.shortcut, attr)
-                    addstr_sanitized(win, None, None, ' ', attr)
+                    addstr_more(before_amp, attr)
+                    if after_amp:
+                        addstr_more(after_amp[0], attr | curses.A_UNDERLINE)
+                        addstr_more(after_amp[1:], attr)
+                    addstr_more(' ' * (self._cols - len(disp_name)), attr)
+                    addstr_more('    ', attr)
+                    addstr_more(item.shortcut, attr | sc_attr)
+                    addstr_more(' ', attr)
                 panel.update_panels()
                 curses.doupdate()
                 c = getch()
