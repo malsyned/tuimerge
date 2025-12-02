@@ -979,9 +979,9 @@ class OutputPane(Pane):
 
             if decision.resolution == Resolution.EDITED:
                 result = self._parent.show_dialog(
-                    'Resolution has been edited externally.\n\n'
                     f'Discard edits and change resolution to "{resolution.value}"?',
                     '(Y)es/(N)o', 'yn',
+                    title='Resolution has been edited externally',
                     color=ColorPair.DIALOG_WARNING
                 )
                 if result != 'y':
@@ -1902,11 +1902,12 @@ class TUIMerge:
             if conflict_markers and resolution == Resolution.EDITED:
                 conflict_text = ''.join(f'    {line}' for line in conflict_markers)
                 dialog_result = self.show_dialog(
-                    'The edited resolution contains conflict markers:\n'
-                    f'{conflict_text}'
-                    'This suggests the conflict is not fully resolved.\n\n'
+                    'The presence of the following conflict markers suggests that the conflict is not fully resolved:\n\n'
+                    f'{conflict_text}\n'
                     'Keep editing?',
-                    '(Y)es/(N)o', inputs='ynqe', color = ColorPair.DIALOG_WARNING,
+                    '(Y)es/(N)o', inputs='ynqe',
+                    title='The edited resolution contains conflict markers',
+                    color=ColorPair.DIALOG_WARNING,
                     esc=True, enter=False, center=False,
                 )
                 if dialog_result in ['y', 'e']:
@@ -2091,7 +2092,8 @@ class TUIMerge:
                 result = self.show_dialog(
                     dialog_text,
                     '(Y)es/(N)o', 'yn',
-                    color=dialog_color
+                    color=dialog_color,
+                    title='Quit'
                 )
                 if result == 'y':
                     clear_and_exit(stdscr, 1)  # indicate to git that the merge wasn't completed
@@ -2251,6 +2253,7 @@ class TUIMerge:
         result = self.show_dialog(
             dialog_text,
             '(Y)es/(N)o', 'yn',
+            title='Save and Quit',
             color=dialog_color
         )
         if result != 'y':
@@ -2302,7 +2305,7 @@ class TUIMerge:
             'D   Diff Base with Merge',
         ])
         r = self.show_dialog(
-            title = 'Diff Revisions',
+            title='Diff Revisions',
             text=dialog_text, inputs='dabcq', center=False, prompt=None)
         if r == 'a':
             self._view_diff_with_merge(self._files[0])
